@@ -1,0 +1,6 @@
+{
+  "name": "SubTranslate",
+  "description": "Extração e tradução de legendas embutidas em vídeo com OCR on-device, exportação SRT/VTT e substituição no vídeo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
