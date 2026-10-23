@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class ReviewEditorUiState(
-    val currentPlaybackPositionMs: Long = 0L,
     val selectedLineId: Long? = null,
     val isCoverOverlayActive: Boolean = true,
     val isRetranslating: Boolean = false,
@@ -68,10 +67,6 @@ class ReviewEditorViewModel(
         }
     }
 
-    fun updatePlaybackPosition(positionMs: Long) {
-        _uiState.value = _uiState.value.copy(currentPlaybackPositionMs = positionMs)
-    }
-
     fun selectLine(lineId: Long?) {
         _uiState.value = _uiState.value.copy(selectedLineId = lineId)
     }
@@ -86,20 +81,12 @@ class ReviewEditorViewModel(
 
     fun updateLineText(lineId: Long, original: String, translated: String) {
         viewModelScope.launch {
-            val lines = subtitleLines.value
-            val existing = lines.firstOrNull { it.id == lineId } ?: return@launch
-            val updated = existing.copy(
-                originalText = original.trim(),
-                translatedText = translated.trim()
-            )
-            subtitleRepository.updateLine(updated)
+            subtitleRepository.updateLineText(lineId, original.trim(), translated.trim())
         }
     }
 
     fun updateLineTimestamps(lineId: Long, startMs: Long, endMs: Long) {
         viewModelScope.launch {
-            val lines = subtitleLines.value
-            val existing = lines.firstOrNull { it.id == lineId } ?: return@launch
             val rawDuration = project.value?.durationMs ?: 0L
             val validStart = startMs.coerceIn(0L, Long.MAX_VALUE - 2_000L).let { start ->
                 if (rawDuration > 0L) start.coerceAtMost(rawDuration) else start
@@ -112,11 +99,7 @@ class ReviewEditorViewModel(
                 requestedEnd
             }
 
-            val updated = existing.copy(
-                startTimeMs = validStart,
-                endTimeMs = validEnd
-            )
-            subtitleRepository.updateLine(updated)
+            subtitleRepository.updateLineTimestamps(lineId, validStart, validEnd)
         }
     }
 
@@ -253,11 +236,10 @@ class ReviewEditorViewModel(
     private suspend fun reindexLines() {
         val currentLines = subtitleRepository.getLinesList(projectId)
         val sorted = currentLines.sortedBy { it.startTimeMs }
-        for ((idx, line) in sorted.withIndex()) {
-            if (line.index != idx + 1) {
-                subtitleRepository.updateLine(line.copy(index = idx + 1))
-            }
+        val reindexed = sorted.mapIndexed { idx, line ->
+            if (line.index == idx + 1) line else line.copy(index = idx + 1)
         }
+        if (reindexed != sorted) subtitleRepository.updateLines(reindexed)
     }
 
     companion object {
@@ -265,12 +247,19 @@ class ReviewEditorViewModel(
             val trimmed = text.trim()
             if (trimmed.isEmpty()) return Pair("", "")
             val words = trimmed.split("\\s+".toRegex())
-            if (words.size <= 1) return Pair(trimmed, "")
+            if (words.size > 1) {
+                val splitPoint = (words.size * ratio).toInt().coerceIn(1, words.size - 1)
+                return Pair(
+                    words.subList(0, splitPoint).joinToString(" "),
+                    words.subList(splitPoint, words.size).joinToString(" ")
+                )
+            }
 
-            val splitPoint = (words.size * ratio).toInt().coerceIn(1, words.size - 1)
-            val part1 = words.subList(0, splitPoint).joinToString(" ")
-            val part2 = words.subList(splitPoint, words.size).joinToString(" ")
-            return Pair(part1, part2)
+            val codePointCount = trimmed.codePointCount(0, trimmed.length)
+            if (codePointCount <= 1) return Pair(trimmed, "")
+            val splitAtCodePoint = (codePointCount * ratio).toInt().coerceIn(1, codePointCount - 1)
+            val splitOffset = trimmed.offsetByCodePoints(0, splitAtCodePoint)
+            return Pair(trimmed.substring(0, splitOffset), trimmed.substring(splitOffset))
         }
     }
 

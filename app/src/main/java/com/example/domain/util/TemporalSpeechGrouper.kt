@@ -7,7 +7,8 @@ class TemporalSpeechGrouper(
     private val similarityThreshold: Float = 0.85f,
     private val minDurationMs: Long = 300L,
     private val sampleIntervalMs: Long = 333L, // approx for 3 fps
-    private val minConsecutiveFrames: Int = 2
+    private val minConsecutiveFrames: Int = 2,
+    private val videoDurationMs: Long = Long.MAX_VALUE
 ) {
 
     /**
@@ -32,7 +33,8 @@ class TemporalSpeechGrouper(
                 val sim = Levenshtein.normalizedSimilarity(lastDetection.text, detection.text)
 
                 // If within reasonable frame gap (e.g., at most 2 samples missed) and similar text
-                val isContinuation = gap <= (sampleIntervalMs * 2.5f) && sim >= similarityThreshold
+                val isContinuation = gap <= (sampleIntervalMs * 2.5f) &&
+                        sim >= maxOf(similarityThreshold, 0.95f)
 
                 if (isContinuation) {
                     currentCluster.add(detection)
@@ -49,20 +51,19 @@ class TemporalSpeechGrouper(
         // Convert clusters to SubtitleLines using voting & boundary selection
         val initialLines = mutableListOf<SubtitleLine>()
         var index = 1
-        val effectiveMinDuration = maxOf(minDurationMs, minConsecutiveFrames * sampleIntervalMs)
-
         for (cluster in clusters) {
             // Discard clusters that don't meet minimum consecutive frames
             if (cluster.size < minConsecutiveFrames) {
                 continue
             }
 
-            val startTime = cluster.first().timestampMs
-            val endTime = cluster.last().timestampMs + sampleIntervalMs
+            val halfInterval = sampleIntervalMs / 2
+            val startTime = (cluster.first().timestampMs - halfInterval).coerceAtLeast(0L)
+            val endTime = (cluster.last().timestampMs + sampleIntervalMs - halfInterval)
+                .coerceAtMost(videoDurationMs)
             val duration = endTime - startTime
 
-            // Filter out noise shorter than effective min duration
-            if (duration < effectiveMinDuration) {
+            if (duration < minDurationMs || endTime <= startTime) {
                 continue
             }
 
@@ -121,7 +122,7 @@ class TemporalSpeechGrouper(
             val gap = next.startTimeMs - current.endTimeMs
             val sim = Levenshtein.normalizedSimilarity(current.originalText, next.originalText)
 
-            if (gap in 0..400 && sim >= 0.88f) {
+            if (gap in 0..400 && sim >= 0.95f) {
                 // Merge into current
                 current = current.copy(
                     endTimeMs = next.endTimeMs,

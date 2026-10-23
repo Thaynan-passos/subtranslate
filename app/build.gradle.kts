@@ -19,8 +19,6 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Do not remove or modify these signingConfigs. They are necessary for building, installing,
-  // and updating Android apps in AI Studio.
   signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
@@ -29,27 +27,14 @@ android {
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
       signingConfig = signingConfigs.getByName("release")
-    }
-    debug {
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
-      signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
   compileOptions {
@@ -90,21 +75,15 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
 
-  // Media3 for video playback, frame analysis, and transformation
+  // Media3 for video playback.
   implementation(libs.androidx.media3.exoplayer)
   implementation(libs.androidx.media3.ui)
   implementation(libs.androidx.media3.common)
-  implementation(libs.androidx.media3.transformer)
-  implementation(libs.androidx.media3.effect)
 
-  // WorkManager for robust background processing
-  implementation(libs.androidx.work.runtime.ktx)
-
-  // ML Kit Text Recognition (Latin + CJK + Devanagari)
+  // Bundled ML Kit OCR models work without Google Play Services model downloads.
   implementation(libs.mlkit.text.recognition)
   implementation(libs.mlkit.text.recognition.chinese)
   implementation(libs.mlkit.text.recognition.japanese)

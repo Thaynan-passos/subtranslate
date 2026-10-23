@@ -128,6 +128,15 @@ fun ProcessingScreen(
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center
                 )
+                if (pipelineState.failedOcrFramesCount > 0) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "OCR não concluiu ${pipelineState.failedOcrFramesCount} amostras; a extração continua.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
 
                 val effectiveErrorMessage = pipelineState.errorMessage?.ifBlank { null }
                     ?: project?.errorMessage?.ifBlank { null }

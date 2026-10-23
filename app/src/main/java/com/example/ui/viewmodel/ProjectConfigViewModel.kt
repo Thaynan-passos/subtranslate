@@ -35,6 +35,7 @@ data class ProjectConfigUiState(
     val samplingFps: Int = 3,
     val outputMode: OutputMode = OutputMode.SRT_ONLY,
     val isAutoDetectingRoi: Boolean = false,
+    val isCreatingProject: Boolean = false,
     val error: String? = null
 )
 
@@ -168,7 +169,14 @@ class ProjectConfigViewModel(
                     val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                     if (frame != null) {
                         try {
-                            val ocrRes = ocrEngine.recognizeText(frame, sourceLanguage)
+                            val ocrRes = try {
+                                ocrEngine.recognizeText(frame, sourceLanguage)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                null
+                            }
+                            if (ocrRes == null) continue
                             val candidateBoxes = ocrRes.blocks.mapNotNull { it.boundingBox }
 
                             if (candidateBoxes.isNotEmpty()) {
@@ -188,14 +196,19 @@ class ProjectConfigViewModel(
                     }
                 }
 
-                val finalRoi = calculateAutoDetectedRoi(detectedTopSum, detectedBottomSum, sampleCount)
-
                 withContext(Dispatchers.Main) {
-                    _uiState.value = _uiState.value.copy(
-                        roi = finalRoi,
-                        isAutoDetectingRoi = false,
-                        error = null
-                    )
+                    _uiState.value = if (sampleCount > 0) {
+                        _uiState.value.copy(
+                            roi = calculateAutoDetectedRoi(detectedTopSum, detectedBottomSum, sampleCount),
+                            isAutoDetectingRoi = false,
+                            error = null
+                        )
+                    } else {
+                        _uiState.value.copy(
+                            isAutoDetectingRoi = false,
+                            error = "Não foi possível detectar legendas nas amostras. A região atual foi mantida."
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -228,28 +241,42 @@ class ProjectConfigViewModel(
         _uiState.value = _uiState.value.copy(outputMode = mode)
     }
 
-    suspend fun createProject(): Long {
+    suspend fun createProject(): Long? {
+        if (_uiState.value.isCreatingProject) return null
         val state = _uiState.value
         if (state.videoUri == null || state.durationMs <= 0L) {
-            throw IllegalStateException("Vídeo inválido ou sem duração detectada.")
+            _uiState.value = state.copy(error = "Vídeo inválido ou sem duração detectada.")
+            return null
         }
-        val project = Project(
-            id = 0,
-            title = state.videoName.ifBlank { "Vídeo Legendas" },
-            videoUri = state.videoUri.toString(),
-            durationMs = state.durationMs,
-            videoWidth = state.videoWidth,
-            videoHeight = state.videoHeight,
-            sourceLanguage = state.sourceLang,
-            targetLanguage = state.targetLang,
-            samplingFps = state.samplingFps,
-            outputMode = state.outputMode,
-            roiLeft = state.roi.left,
-            roiTop = state.roi.top,
-            roiRight = state.roi.right,
-            roiBottom = state.roi.bottom
-        )
-        return projectRepository.saveProject(project)
+        _uiState.value = state.copy(isCreatingProject = true, error = null)
+        return try {
+            val project = Project(
+                id = 0,
+                title = state.videoName.ifBlank { "Vídeo Legendas" },
+                videoUri = state.videoUri.toString(),
+                durationMs = state.durationMs,
+                videoWidth = state.videoWidth,
+                videoHeight = state.videoHeight,
+                sourceLanguage = state.sourceLang,
+                targetLanguage = state.targetLang,
+                samplingFps = state.samplingFps,
+                outputMode = state.outputMode,
+                roiLeft = state.roi.left,
+                roiTop = state.roi.top,
+                roiRight = state.roi.right,
+                roiBottom = state.roi.bottom
+            )
+            projectRepository.saveProject(project)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                error = "Não foi possível criar o projeto: ${e.localizedMessage ?: "erro desconhecido"}"
+            )
+            null
+        } finally {
+            _uiState.value = _uiState.value.copy(isCreatingProject = false)
+        }
     }
 
     companion object {

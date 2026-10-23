@@ -29,6 +29,7 @@ import com.example.ui.viewmodel.ProjectConfigViewModel
 import com.example.ui.viewmodel.ReviewEditorViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -128,8 +129,39 @@ class SubtitleDomainUnitTest {
         // Only the continuous speech should be retained; the single isolated frame is discarded!
         assertEquals(1, result.size)
         assertEquals("Fala legítima", result[0].originalText)
-        assertEquals(3000L, result[0].startTimeMs)
-        assertEquals(3666L + 333L, result[0].endTimeMs)
+        assertEquals(2834L, result[0].startTimeMs)
+        assertEquals(3833L, result[0].endTimeMs)
+    }
+
+    @Test
+    fun testTemporalGrouperKeepsShortSpeechAtOneFpsAndSeparatesChangedCaptions() {
+        val shortSpeech = TemporalSpeechGrouper(
+            minDurationMs = 300L,
+            sampleIntervalMs = 1000L,
+            minConsecutiveFrames = 1,
+            videoDurationMs = 3000L
+        ).groupDetections(
+            1L,
+            listOf(RawFrameDetection(1000L, "A", 0.95f))
+        )
+        assertEquals(1, shortSpeech.size)
+        assertEquals(500L, shortSpeech.single().startTimeMs)
+        assertEquals(1500L, shortSpeech.single().endTimeMs)
+
+        val changedCaptions = TemporalSpeechGrouper(
+            minDurationMs = 300L,
+            sampleIntervalMs = 333L,
+            minConsecutiveFrames = 2
+        ).groupDetections(
+            1L,
+            listOf(
+                RawFrameDetection(1000L, "Chapter 1", 0.95f),
+                RawFrameDetection(1333L, "Chapter 1", 0.95f),
+                RawFrameDetection(1666L, "Chapter 2", 0.95f),
+                RawFrameDetection(1999L, "Chapter 2", 0.95f)
+            )
+        )
+        assertEquals(2, changedCaptions.size)
     }
 
     @Test
@@ -256,14 +288,22 @@ class SubtitleDomainUnitTest {
         val vtt = SubtitleFormatter.toWebVtt(lines, SubtitleExportType.TRANSLATED_ONLY)
         assertTrue(vtt.startsWith("WEBVTT\n\n"))
         assertTrue(vtt.contains("00:00:01.500 --> 00:00:04.250\n"))
+
+        assertEquals("one two\nthree", SubtitleFormatter.wrapText("one two three", maxCharsPerLine = 7))
     }
 
     @Test
-    fun testSplitTextByRatioSingleWordReturnsEmptySecondHalf() {
+    fun testSplitTextByRatioHandlesSingleWordsAndCjk() {
         // Single word
         val (singlePart1, singlePart2) = ReviewEditorViewModel.splitTextByRatio("Unicórnio", 0.5f)
-        assertEquals("Unicórnio", singlePart1)
-        assertEquals("", singlePart2)
+        assertEquals("Unicórnio", singlePart1 + singlePart2)
+        assertTrue(singlePart1.isNotEmpty())
+        assertTrue(singlePart2.isNotEmpty())
+
+        val (cjkPart1, cjkPart2) = ReviewEditorViewModel.splitTextByRatio("日本語字幕", 0.5f)
+        assertEquals("日本語字幕", cjkPart1 + cjkPart2)
+        assertTrue(cjkPart1.isNotEmpty())
+        assertTrue(cjkPart2.isNotEmpty())
 
         // Empty string
         val (empty1, empty2) = ReviewEditorViewModel.splitTextByRatio("", 0.5f)
@@ -292,13 +332,12 @@ class SubtitleDomainUnitTest {
 
         // Simulate successful translation with placeholders intact
         val simulatedTranslated = "O ⟦G0⟧ tem um ⟦G1⟧"
-        val restored = MlKitTranslatorImpl.restorePlaceholders(simulatedTranslated, placeholders, glossary)
+        val restored = MlKitTranslatorImpl.restorePlaceholders(simulatedTranslated, placeholders)
         assertEquals("O Senhor das Trevas tem um Shield", restored)
 
-        // Simulate corrupted placeholder (e.g. translator modified or dropped placeholder)
-        val corruptedTranslated = "O Dark Lord tem um ⟦G1⟧"
-        val restoredFallback = MlKitTranslatorImpl.restorePlaceholders(corruptedTranslated, placeholders, glossary)
-        assertEquals("O Senhor das Trevas tem um Shield", restoredFallback)
+        assertThrows(IllegalStateException::class.java) {
+            MlKitTranslatorImpl.restorePlaceholders("O Dark Lord tem um ⟦G1⟧", placeholders)
+        }
     }
 
     @Test
@@ -385,7 +424,6 @@ class SubtitleDomainUnitTest {
             text: String,
             sourceLanguage: String,
             targetLanguage: String,
-            contextLines: List<String>,
             glossary: Map<String, String>,
             bypassCache: Boolean
         ): String {
@@ -430,6 +468,7 @@ class SubtitleDomainUnitTest {
                 errorMessage = if (status == ProjectStatus.ERROR.name) currentStep else null
             )
         }
+        override suspend fun markAbandonedProcessingProjects(activeProjectId: Long?) = Unit
         override suspend fun deleteProject(project: ProjectEntity) = Unit
         override suspend fun deleteProjectById(id: Long) = Unit
     }
@@ -441,6 +480,9 @@ class SubtitleDomainUnitTest {
         override suspend fun insertLines(lines: List<SubtitleLineEntity>) = Unit
         override suspend fun insertLine(line: SubtitleLineEntity) = 1L
         override suspend fun updateLine(line: SubtitleLineEntity) = Unit
+        override suspend fun updateLines(lines: List<SubtitleLineEntity>) = Unit
+        override suspend fun updateLineText(id: Long, originalText: String, translatedText: String) = Unit
+        override suspend fun updateLineTimestamps(id: Long, startTimeMs: Long, endTimeMs: Long) = Unit
         override suspend fun deleteLine(line: SubtitleLineEntity) = Unit
         override suspend fun deleteLineById(id: Long) = Unit
         override suspend fun deleteLinesByProject(projectId: Long) = Unit

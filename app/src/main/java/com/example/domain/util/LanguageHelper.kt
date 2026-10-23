@@ -56,7 +56,7 @@ object LanguageHelper {
             "it", "italian" -> TranslateLanguage.ITALIAN
             "ru", "russian" -> TranslateLanguage.RUSSIAN
             "hi", "hindi", "devanagari" -> TranslateLanguage.HINDI
-            else -> TranslateLanguage.ENGLISH
+            else -> throw IllegalArgumentException("Idioma não suportado pelo tradutor: $code")
         }
     }
 }

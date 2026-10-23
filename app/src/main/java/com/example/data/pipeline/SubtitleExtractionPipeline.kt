@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import com.example.data.repository.ProjectRepository
 import com.example.data.repository.SubtitleRepository
 import com.example.data.service.SubtitleExtractionService
@@ -37,7 +38,8 @@ data class PipelineState(
     val currentSampleTimeMs: Long = 0L,
     val totalDurationMs: Long = 0L,
     val errorMessage: String? = null,
-    val failedTranslationsCount: Int = 0
+    val failedTranslationsCount: Int = 0,
+    val failedOcrFramesCount: Int = 0
 )
 
 class SubtitleExtractionPipeline(
@@ -83,9 +85,10 @@ class SubtitleExtractionPipeline(
         updateState(projectId) { it.copy(isPaused = false) }
     }
 
-    fun cancel(projectId: Long) {
+    suspend fun cancel(projectId: Long) {
         cancelledProjects.add(projectId)
         updateState(projectId) { it.copy(isRunning = false) }
+        projectRepository.updateProgress(projectId, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
         NotificationHelper.cancelNotification(context)
         SubtitleExtractionService.stop(context)
     }
@@ -154,6 +157,10 @@ class SubtitleExtractionPipeline(
 
                 val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 val durationMs = durationStr?.toLongOrNull() ?: project.durationMs
+                val videoWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                    ?.toIntOrNull() ?: project.videoWidth
+                val videoHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                    ?.toIntOrNull() ?: project.videoHeight
                 if (durationMs <= 0L) {
                     throw IllegalStateException("O vídeo selecionado possui duração inválida (0s).")
                 }
@@ -172,11 +179,12 @@ class SubtitleExtractionPipeline(
                 val fps = project.samplingFps.coerceIn(1, 10)
                 val intervalMs = (1000L / fps).coerceAtLeast(100L)
 
-                // Step 1: Frame Extraction & OCR with 64x16 thumbnail MAE diffing and emptiness detection
+                // Step 1: Frame extraction and OCR with thumbnail diffing and empty-region detection.
                 val rawDetections = mutableListOf<RawFrameDetection>()
                 var lastThumb: IntArray? = null
                 var lastOcrText = ""
                 var lastConfidence = 0f
+                var failedOcrFrames = 0
 
                 var currentTimeMs = 0L
                 val totalSteps = (durationMs / intervalMs).coerceAtLeast(1L)
@@ -201,7 +209,7 @@ class SubtitleExtractionPipeline(
                     }
 
                     val frameMicros = currentTimeMs * 1000L
-                    val rawFrame = retriever.getFrameAtTime(frameMicros, MediaMetadataRetriever.OPTION_CLOSEST)
+                    val rawFrame = getScaledFrame(retriever, frameMicros, videoWidth, videoHeight)
 
                     if (rawFrame != null) {
                         var croppedBitmap: Bitmap? = null
@@ -219,7 +227,7 @@ class SubtitleExtractionPipeline(
 
                             val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
                             croppedBitmap = crop
-                            val currentThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 64, 16)
+                            val currentThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
                             val stdDev = ImagePreprocessor.computeStandardDeviation(currentThumb)
 
                             val detectedText: String
@@ -233,7 +241,7 @@ class SubtitleExtractionPipeline(
                                 lastConfidence = 0f
                             } else {
                                 val isSimilarToLast = lastThumb != null &&
-                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 6.0f)
+                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f)
 
                                 if (isSimilarToLast) {
                                     detectedText = lastOcrText
@@ -241,12 +249,24 @@ class SubtitleExtractionPipeline(
                                 } else {
                                     val enhanced = ImagePreprocessor.enhanceForOcr(crop)
                                     enhancedBitmap = enhanced
-                                    val ocrRes = ocrEngine.recognizeText(enhanced, project.sourceLanguage)
-                                    detectedText = ocrRes.fullText
-                                    detectedConfidence = ocrRes.confidence
-                                    lastThumb = currentThumb
-                                    lastOcrText = detectedText
-                                    lastConfidence = detectedConfidence
+                                    val ocrRes = try {
+                                        ocrEngine.recognizeText(enhanced, project.sourceLanguage)
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        failedOcrFrames++
+                                        null
+                                    }
+                                    if (ocrRes == null) {
+                                        detectedText = ""
+                                        detectedConfidence = 0f
+                                    } else {
+                                        detectedText = ocrRes.fullText
+                                        detectedConfidence = ocrRes.confidence
+                                        lastThumb = currentThumb
+                                        lastOcrText = detectedText
+                                        lastConfidence = detectedConfidence
+                                    }
                                 }
                             }
 
@@ -279,7 +299,8 @@ class SubtitleExtractionPipeline(
                             it.copy(
                                 progress = frameProgress,
                                 currentSampleTimeMs = currentTimeMs,
-                                extractedLinesCount = rawDetections.size
+                                extractedLinesCount = rawDetections.size,
+                                failedOcrFramesCount = failedOcrFrames
                             )
                         }
                         val percent = ((currentTimeMs * 100) / durationMs).toInt()
@@ -291,6 +312,12 @@ class SubtitleExtractionPipeline(
                         )
                         NotificationHelper.updateProgressNotification(context, project.title, "OCR: $percent%", (frameProgress * 100).toInt())
                     }
+                }
+
+                if (failedOcrFrames > 0 && rawDetections.isEmpty()) {
+                    throw IllegalStateException(
+                        "O OCR falhou em $failedOcrFrames amostras e nenhuma legenda pôde ser detectada."
+                    )
                 }
 
                 // Step 2: Temporal Speech Grouping
@@ -307,7 +334,8 @@ class SubtitleExtractionPipeline(
                     similarityThreshold = appSettings.textSimilarityThreshold,
                     minDurationMs = appSettings.minSpeechDurationMs,
                     sampleIntervalMs = intervalMs,
-                    minConsecutiveFrames = 2
+                    minConsecutiveFrames = if (fps == 1) 1 else 2,
+                    videoDurationMs = durationMs
                 )
                 val groupedLines = grouper.groupDetections(project.id, rawDetections)
 
@@ -332,10 +360,12 @@ class SubtitleExtractionPipeline(
                     if (cancelledProjects.contains(project.id)) {
                         throw CancellationException("Operação cancelada pelo usuário")
                     }
-
-                    val contextList = mutableListOf<String>()
-                    if (idx > 0) contextList.add(groupedLines[idx - 1].originalText)
-                    if (idx < totalLines - 1) contextList.add(groupedLines[idx + 1].originalText)
+                    while (pausedProjects.contains(project.id)) {
+                        kotlinx.coroutines.delay(200)
+                        if (cancelledProjects.contains(project.id)) {
+                            throw CancellationException("Operação cancelada pelo usuário")
+                        }
+                    }
 
                     var translatedText = ""
                     var isLineFlagged = line.isFlagged
@@ -345,7 +375,6 @@ class SubtitleExtractionPipeline(
                             text = line.originalText,
                             sourceLanguage = project.sourceLanguage,
                             targetLanguage = project.targetLanguage,
-                            contextLines = contextList,
                             glossary = appSettings.glossaryTerms,
                             bypassCache = false
                         )
@@ -385,6 +414,7 @@ class SubtitleExtractionPipeline(
                         )
                         NotificationHelper.updateProgressNotification(context, project.title, "Traduzindo ${idx + 1}/$totalLines", (transProgress * 100).toInt())
                     }
+
                 }
 
                 // Mark Completed
@@ -408,7 +438,8 @@ class SubtitleExtractionPipeline(
                         isRunning = false,
                         extractedLinesCount = finalLines.size,
                         totalDurationMs = durationMs,
-                        failedTranslationsCount = failedCount
+                        failedTranslationsCount = failedCount,
+                        failedOcrFramesCount = failedOcrFrames
                     )
                 }
                 NotificationHelper.updateProgressNotification(context, project.title, completionMessage, 100)
@@ -437,7 +468,8 @@ class SubtitleExtractionPipeline(
                             step = "Erro no processamento",
                             progress = 0f,
                             isRunning = false,
-                            errorMessage = msg
+                            errorMessage = msg,
+                            failedOcrFramesCount = failedOcrFrames
                         )
                     }
                     NotificationHelper.cancelNotification(context)
@@ -451,5 +483,27 @@ class SubtitleExtractionPipeline(
         } finally {
             mutex.unlock()
         }
+    }
+
+    private fun getScaledFrame(
+        retriever: MediaMetadataRetriever,
+        timeUs: Long,
+        videoWidth: Int,
+        videoHeight: Int
+    ): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+            return retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        }
+        val width = videoWidth.coerceAtLeast(1)
+        val height = videoHeight.coerceAtLeast(1)
+        val scale = minOf(1f, 1920f / maxOf(width, height))
+        val targetWidth = (width * scale).toInt().coerceAtLeast(1)
+        val targetHeight = (height * scale).toInt().coerceAtLeast(1)
+        return retriever.getScaledFrameAtTime(
+            timeUs,
+            MediaMetadataRetriever.OPTION_CLOSEST,
+            targetWidth,
+            targetHeight
+        )
     }
 }

@@ -46,7 +46,7 @@ class ProcessingViewModel(
         pipeline.resume(projectId)
     }
 
-    fun cancel() {
+    suspend fun cancel() {
         pipeline.cancel(projectId)
     }
 

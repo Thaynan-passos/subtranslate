@@ -35,6 +35,7 @@ object SubtitleFormatter {
      * Accurately breaks CJK character-by-character, splits oversized words, and strips blank lines.
      */
     fun wrapText(text: String, maxCharsPerLine: Int = 42): String {
+        val lineLimit = maxCharsPerLine.coerceAtLeast(1)
         val clean = text.trim().replace("\r\n", "\n").replace("\r", "\n")
         if (clean.isEmpty()) return ""
 
@@ -42,7 +43,7 @@ object SubtitleFormatter {
         val result = mutableListOf<String>()
 
         for (line in rawLines) {
-            if (line.length <= maxCharsPerLine) {
+            if (line.length <= lineLimit) {
                 result.add(line)
                 continue
             }
@@ -51,7 +52,7 @@ object SubtitleFormatter {
                 // Break CJK by characters
                 var i = 0
                 while (i < line.length) {
-                    val end = minOf(i + maxCharsPerLine, line.length)
+                    val end = minOf(i + lineLimit, line.length)
                     result.add(line.substring(i, end).trim())
                     i = end
                 }
@@ -62,14 +63,14 @@ object SubtitleFormatter {
 
                 for (word in words) {
                     // If a single word is larger than the line limit, chunk it
-                    if (word.length > maxCharsPerLine) {
+                    if (word.length > lineLimit) {
                         if (currentLine.isNotEmpty()) {
                             result.add(currentLine.toString())
                             currentLine = StringBuilder()
                         }
                         var wIdx = 0
                         while (wIdx < word.length) {
-                            val wEnd = minOf(wIdx + maxCharsPerLine, word.length)
+                            val wEnd = minOf(wIdx + lineLimit, word.length)
                             val chunk = word.substring(wIdx, wEnd)
                             if (wEnd == word.length) {
                                 currentLine.append(chunk)
@@ -83,7 +84,7 @@ object SubtitleFormatter {
 
                     if (currentLine.isEmpty()) {
                         currentLine.append(word)
-                    } else if (currentLine.length + 1 + word.length <= maxCharsPerLine) {
+                    } else if (currentLine.length + 1 + word.length <= lineLimit) {
                         currentLine.append(" ").append(word)
                     } else {
                         result.add(currentLine.toString())

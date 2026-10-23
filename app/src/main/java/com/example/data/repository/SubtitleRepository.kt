@@ -35,6 +35,18 @@ class SubtitleRepository(
         subtitleLineDao.updateLine(SubtitleLineEntity.fromDomain(line))
     }
 
+    suspend fun updateLineText(id: Long, originalText: String, translatedText: String) {
+        subtitleLineDao.updateLineText(id, originalText, translatedText)
+    }
+
+    suspend fun updateLineTimestamps(id: Long, startTimeMs: Long, endTimeMs: Long) {
+        subtitleLineDao.updateLineTimestamps(id, startTimeMs, endTimeMs)
+    }
+
+    suspend fun updateLines(lines: List<SubtitleLine>) {
+        subtitleLineDao.updateLines(lines.map(SubtitleLineEntity::fromDomain))
+    }
+
     suspend fun deleteLine(lineId: Long) {
         subtitleLineDao.deleteLineById(lineId)
     }

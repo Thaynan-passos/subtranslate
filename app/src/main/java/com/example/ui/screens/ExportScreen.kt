@@ -58,6 +58,7 @@ import androidx.core.content.FileProvider
 import com.example.R
 import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
+import com.example.domain.model.AppSettings
 import com.example.domain.util.SubtitleExportType
 import com.example.domain.util.SubtitleFormatter
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +72,7 @@ import java.io.IOException
 fun ExportScreen(
     project: Project?,
     subtitleLines: List<SubtitleLine>,
+    maxCharsPerLine: Int = AppSettings().maxCharsPerLine,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -78,15 +80,19 @@ fun ExportScreen(
     var exportType by remember { mutableStateOf(SubtitleExportType.TRANSLATED_ONLY) }
 
     val sanitizedTitle = remember(project?.title) {
-        (project?.title ?: "legendas").replace("[/\\\\:*?\"<>|]".toRegex(), "_").trim()
+        (project?.title ?: "legendas")
+            .replace("\\.[^.]+$".toRegex(), "")
+            .replace("[/\\\\:*?\"<>|]".toRegex(), "_")
+            .trim()
+            .ifBlank { "legendas" }
     }
 
-    val srtContent = remember(subtitleLines, exportType) {
-        SubtitleFormatter.toSrt(subtitleLines, exportType)
+    val srtContent = remember(subtitleLines, exportType, maxCharsPerLine) {
+        SubtitleFormatter.toSrt(subtitleLines, exportType, maxCharsPerLine)
     }
 
-    val vttContent = remember(subtitleLines, exportType) {
-        SubtitleFormatter.toWebVtt(subtitleLines, exportType)
+    val vttContent = remember(subtitleLines, exportType, maxCharsPerLine) {
+        SubtitleFormatter.toWebVtt(subtitleLines, exportType, maxCharsPerLine)
     }
 
     // Save File SAF Launcher for SRT

@@ -58,6 +58,16 @@ interface ProjectDao {
     """)
     suspend fun updateProgress(id: Long, status: String, progress: Float, currentStep: String)
 
+    @Query("""
+        UPDATE projects
+        SET status = 'ERROR',
+            progress = 0,
+            currentStep = 'O processamento foi interrompido inesperadamente. Tente novamente.',
+            errorMessage = 'O processamento foi interrompido inesperadamente. Tente novamente.'
+        WHERE status = 'PROCESSING' AND (:activeProjectId IS NULL OR id != :activeProjectId)
+    """)
+    suspend fun markAbandonedProcessingProjects(activeProjectId: Long?)
+
     @Delete
     suspend fun deleteProject(project: ProjectEntity)
 

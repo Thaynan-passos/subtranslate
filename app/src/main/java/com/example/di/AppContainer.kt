@@ -29,12 +29,21 @@ class AppContainer(val context: Context) {
         SettingsRepository(context)
     }
 
-    val ocrEngine: OcrEngine by lazy {
+    private val ocrEngineInstance = lazy {
         MlKitOcrEngine()
     }
 
-    val translator: Translator by lazy {
+    val ocrEngine: OcrEngine by ocrEngineInstance
+
+    private val translatorInstance = lazy {
         MlKitTranslatorImpl(subtitleRepository)
+    }
+
+    val translator: Translator by translatorInstance
+
+    fun closeEngines() {
+        if (ocrEngineInstance.isInitialized()) ocrEngine.close()
+        if (translatorInstance.isInitialized()) translator.close()
     }
 
     val extractionPipeline: SubtitleExtractionPipeline by lazy {

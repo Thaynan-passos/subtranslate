@@ -17,6 +17,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -24,15 +25,11 @@ class MlKitOcrEngine : OcrEngine {
 
     override val name: String = "ML Kit Text Recognition v2"
 
-    private var currentLang: String? = null
-    private var recognizer: TextRecognizer? = null
+    private val recognizers = ConcurrentHashMap<String, TextRecognizer>()
 
-    @Synchronized
     private fun getRecognizer(lang: String): TextRecognizer {
-        if (recognizer == null || currentLang != lang) {
-            recognizer?.close()
-            currentLang = lang
-            recognizer = when (lang.lowercase()) {
+        return recognizers.getOrPut(lang.lowercase()) {
+            when (lang.lowercase()) {
                 "zh", "chinese" -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
                 "ja", "japanese" -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
                 "ko", "korean" -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
@@ -40,7 +37,6 @@ class MlKitOcrEngine : OcrEngine {
                 else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             }
         }
-        return recognizer!!
     }
 
     override suspend fun recognizeText(bitmap: Bitmap, languageCode: String): OcrResult {
@@ -138,7 +134,7 @@ class MlKitOcrEngine : OcrEngine {
     }
 
     override fun close() {
-        recognizer?.close()
-        recognizer = null
+        recognizers.values.forEach(TextRecognizer::close)
+        recognizers.clear()
     }
 }

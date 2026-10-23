@@ -375,6 +375,7 @@ fun ProjectConfigScreen(
                 enabled = uiState.videoUri != null &&
                         uiState.durationMs > 0L &&
                         !uiState.isAutoDetectingRoi &&
+                        !uiState.isCreatingProject &&
                         uiState.sourceLang != uiState.targetLang,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -382,10 +383,14 @@ fun ProjectConfigScreen(
                     .testTag("start_extraction_button"),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                if (uiState.isCreatingProject) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = stringResource(R.string.btn_start_processing),
+                    text = if (uiState.isCreatingProject) "Criando projeto..." else stringResource(R.string.btn_start_processing),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.domain.model.AppSettings
 import com.example.domain.model.ProjectStatus
+import com.example.data.service.SubtitleExtractionService
 import com.example.ui.screens.ExportScreen
 import com.example.ui.screens.ProcessingScreen
 import com.example.ui.screens.ProjectConfigScreen
@@ -69,6 +71,9 @@ class MainActivity : ComponentActivity() {
                     ) { _ -> }
 
                     LaunchedEffect(Unit) {
+                        container.projectRepository.markAbandonedProcessingProjects(
+                            SubtitleExtractionService.activeProjectId
+                        )
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             val status = ContextCompat.checkSelfPermission(
                                 this@MainActivity,
@@ -120,6 +125,9 @@ class MainActivity : ComponentActivity() {
                                     ocrEngine = container.ocrEngine
                                 )
                             )
+                            DisposableEffect(configViewModel) {
+                                onDispose { configViewModel.resetState() }
+                            }
                             val uiState by configViewModel.uiState.collectAsState()
 
                             // Initialize default FPS from settings
@@ -140,8 +148,10 @@ class MainActivity : ComponentActivity() {
                                 onStartExtraction = {
                                     scope.launch {
                                         val newId = configViewModel.createProject()
-                                        backStack.removeAt(backStack.lastIndex)
-                                        navigateTo("processing/$newId")
+                                        if (newId != null) {
+                                            backStack.removeAt(backStack.lastIndex)
+                                            navigateTo("processing/$newId")
+                                        }
                                     }
                                 },
                                 onBackClick = { navigateBack() }
@@ -183,8 +193,10 @@ class MainActivity : ComponentActivity() {
                                 onPauseClick = { processingViewModel.pause() },
                                 onResumeClick = { processingViewModel.resume() },
                                 onCancelClick = {
-                                    processingViewModel.cancel()
-                                    navigateBack()
+                                    scope.launch {
+                                        processingViewModel.cancel()
+                                        navigateBack()
+                                    }
                                 },
                                 onGoToEditorClick = {
                                     backStack.removeAt(backStack.lastIndex)
@@ -227,7 +239,6 @@ class MainActivity : ComponentActivity() {
                                 subtitleLines = lines,
                                 settings = editorSettings,
                                 uiState = editorUiState,
-                                onPositionChanged = { editorViewModel.updatePlaybackPosition(it) },
                                 onSelectLine = { editorViewModel.selectLine(it) },
                                 onToggleCoverOverlay = { editorViewModel.toggleCoverOverlay(it) },
                                 onUpdateLineText = { id, o, t -> editorViewModel.updateLineText(id, o, t) },
@@ -266,6 +277,7 @@ class MainActivity : ComponentActivity() {
                             ExportScreen(
                                 project = currentProject,
                                 subtitleLines = lines,
+                                maxCharsPerLine = settings.maxCharsPerLine,
                                 onBackClick = { navigateBack() }
                             )
                         }
@@ -280,6 +292,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onFontSizeChanged = {
                                     scope.launch { container.settingsRepository.updateFontSize(it) }
+                                },
+                                onMaxCharsPerLineChanged = {
+                                    scope.launch { container.settingsRepository.updateMaxCharsPerLine(it) }
                                 },
                                 onGlossaryChanged = {
                                     scope.launch { container.settingsRepository.updateGlossary(it) }

@@ -11,7 +11,6 @@ interface Translator {
         text: String,
         sourceLanguage: String,
         targetLanguage: String,
-        contextLines: List<String> = emptyList(),
         glossary: Map<String, String> = emptyMap(),
         bypassCache: Boolean = false
     ): String

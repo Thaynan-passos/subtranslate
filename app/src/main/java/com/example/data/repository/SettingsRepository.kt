@@ -18,8 +18,6 @@ val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(na
 class SettingsRepository(private val context: Context) {
 
     private object Keys {
-        val OCR_ENGINE = stringPreferencesKey("ocr_engine")
-        val TRANSLATION_ENGINE = stringPreferencesKey("translation_engine")
         val DEFAULT_FPS = intPreferencesKey("default_fps")
         val MIN_SPEECH_DURATION = intPreferencesKey("min_speech_duration")
         val SIMILARITY_THRESHOLD = floatPreferencesKey("similarity_threshold")
@@ -36,8 +34,6 @@ class SettingsRepository(private val context: Context) {
         val glossaryMap = parseGlossary(glossaryString)
 
         AppSettings(
-            ocrEngine = prefs[Keys.OCR_ENGINE] ?: "ML_KIT",
-            translationEngine = prefs[Keys.TRANSLATION_ENGINE] ?: "ML_KIT",
             defaultFps = prefs[Keys.DEFAULT_FPS] ?: 3,
             minSpeechDurationMs = (prefs[Keys.MIN_SPEECH_DURATION] ?: 300).toLong(),
             textSimilarityThreshold = prefs[Keys.SIMILARITY_THRESHOLD] ?: 0.85f,
@@ -63,15 +59,12 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit { it[Keys.SUBTITLE_FONT_SIZE] = sizeSp }
     }
 
-    suspend fun updateGlossary(rawText: String) {
-        context.settingsDataStore.edit { it[Keys.GLOSSARY_RAW] = rawText }
+    suspend fun updateMaxCharsPerLine(maxChars: Int) {
+        context.settingsDataStore.edit { it[Keys.MAX_CHARS_PER_LINE] = maxChars.coerceIn(20, 80) }
     }
 
-    suspend fun updateEngine(ocr: String, translator: String) {
-        context.settingsDataStore.edit {
-            it[Keys.OCR_ENGINE] = ocr
-            it[Keys.TRANSLATION_ENGINE] = translator
-        }
+    suspend fun updateGlossary(rawText: String) {
+        context.settingsDataStore.edit { it[Keys.GLOSSARY_RAW] = rawText }
     }
 
     companion object {

@@ -55,6 +55,7 @@ fun SettingsScreen(
     settings: AppSettings,
     onCoverOverlayChanged: (Boolean) -> Unit,
     onFontSizeChanged: (Int) -> Unit,
+    onMaxCharsPerLineChanged: (Int) -> Unit,
     onGlossaryChanged: (String) -> Unit,
     onBackClick: () -> Unit
 ) {
@@ -62,6 +63,7 @@ fun SettingsScreen(
         mutableStateOf(settings.glossaryRaw)
     }
     var fontSize by remember { mutableIntStateOf(settings.subtitleFontSizeSp) }
+    var maxCharsPerLine by remember { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
 
     // Debounce saving glossary text
     androidx.compose.runtime.LaunchedEffect(glossaryText) {
@@ -162,6 +164,21 @@ fun SettingsScreen(
                         valueRange = 12f..32f,
                         steps = 10,
                         modifier = Modifier.testTag("font_size_slider")
+                    )
+
+                    Text(
+                        text = "Máximo de caracteres por linha na exportação: $maxCharsPerLine",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Slider(
+                        value = maxCharsPerLine.toFloat(),
+                        onValueChange = {
+                            maxCharsPerLine = it.toInt()
+                            onMaxCharsPerLineChanged(maxCharsPerLine)
+                        },
+                        valueRange = 20f..80f,
+                        steps = 59,
+                        modifier = Modifier.testTag("max_chars_per_line_slider")
                     )
                 }
             }

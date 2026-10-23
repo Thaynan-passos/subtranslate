@@ -98,7 +98,6 @@ fun ReviewEditorScreen(
     subtitleLines: List<SubtitleLine>,
     settings: AppSettings,
     uiState: ReviewEditorUiState,
-    onPositionChanged: (Long) -> Unit,
     onSelectLine: (Long?) -> Unit,
     onToggleCoverOverlay: (Boolean) -> Unit,
     onUpdateLineText: (Long, String, String) -> Unit,
@@ -145,12 +144,10 @@ fun ReviewEditorScreen(
                     reason: Int
                 ) {
                     currentPlaybackPosition = newPosition.positionMs
-                    onPositionChanged(currentPlaybackPosition)
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     currentPlaybackPosition = player.currentPosition
-                    onPositionChanged(currentPlaybackPosition)
                 }
             }
             player.addListener(listener)
@@ -182,7 +179,6 @@ fun ReviewEditorScreen(
         while (true) {
             if (player.isPlaying) {
                 currentPlaybackPosition = player.currentPosition
-                onPositionChanged(currentPlaybackPosition)
             }
             delay(100)
         }
@@ -197,6 +193,13 @@ fun ReviewEditorScreen(
             Color(android.graphics.Color.parseColor(settings.overlayColorHex))
         } catch (_: Exception) {
             Color(0xF0000000)
+        }
+        val subtitleTextColor = remember(settings.subtitleTextColorHex) {
+            try {
+                Color(android.graphics.Color.parseColor(settings.subtitleTextColorHex))
+            } catch (_: IllegalArgumentException) {
+                Color.White
+            }
         }
     }
 
@@ -288,7 +291,7 @@ fun ReviewEditorScreen(
                         ) {
                             Text(
                                 text = displayText,
-                                color = Color.White,
+                                color = subtitleTextColor,
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     fontSize = settings.subtitleFontSizeSp.sp,
                                     fontWeight = FontWeight.Bold
@@ -371,7 +374,6 @@ fun ReviewEditorScreen(
                         onSeekTo = {
                             exoPlayer?.seekTo(line.startTimeMs)
                             currentPlaybackPosition = line.startTimeMs
-                            onPositionChanged(currentPlaybackPosition)
                         },
                         onEdit = { editingLine = line },
                         onDelete = { onDeleteLine(line.id) },

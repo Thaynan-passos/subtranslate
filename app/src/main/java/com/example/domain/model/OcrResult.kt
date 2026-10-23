@@ -26,8 +26,6 @@ data class RawFrameDetection(
 )
 
 data class AppSettings(
-    val ocrEngine: String = "ML_KIT",
-    val translationEngine: String = "ML_KIT",
     val defaultFps: Int = 3,
     val minSpeechDurationMs: Long = 300L,
     val textSimilarityThreshold: Float = 0.85f,

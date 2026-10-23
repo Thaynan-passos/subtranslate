@@ -41,6 +41,10 @@ class ProjectRepository(
         projectDao.updateProgress(id, status, progress, currentStep)
     }
 
+    suspend fun markAbandonedProcessingProjects(activeProjectId: Long?) {
+        projectDao.markAbandonedProcessingProjects(activeProjectId)
+    }
+
     suspend fun deleteProject(id: Long) {
         projectDao.deleteProjectById(id)
     }
