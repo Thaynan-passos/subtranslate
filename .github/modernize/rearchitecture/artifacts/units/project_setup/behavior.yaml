@@ -1,0 +1,27 @@
+unit: project_setup
+side_effects:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:233"
+    effect: "Persiste o projeto configurado e retorna seu ID para iniciar o fluxo de processamento."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt:100"
+    condition: "Usuário escolhe vídeo no seletor de documentos."
+    behavior: "Recebe URI por OpenDocument e atualiza o estado de configuração."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:233"
+    condition: "createProject retorna um ID não nulo."
+    behavior: "Activity remove a tela de configuração e navega para processing/{id}."
+    must_preserve: true
+error_paths:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:237"
+    trigger: "Não há URI de vídeo válida ou a duração detectada é menor ou igual a zero."
+    outcome: "createProject retorna null e publica mensagem de vídeo inválido no estado da tela."
+    contract: "Não persiste projeto nem navega para processamento."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:263"
+    trigger: "Falha ao persistir projeto."
+    outcome: "Publica mensagem de erro localizada e retorna null; estado isCreatingProject é limpo em finally."
+    contract: "Sem navegação para processamento."
+    must_preserve: true
+concurrency:
+  model: coroutine

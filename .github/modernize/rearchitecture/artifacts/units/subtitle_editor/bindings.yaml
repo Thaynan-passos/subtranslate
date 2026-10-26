@@ -1,0 +1,15 @@
+unit: subtitle_editor
+bindings:
+  - type: route-declaration
+    name: "editor/{id}"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:215"
+    target: "ReviewEditorScreen"
+    must_appear_in_target: true
+    notes: "Rota recebe ID persistido do projeto."
+  - type: di-registration
+    name: "ReviewEditorViewModel.Factory"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:224"
+    target: "ReviewEditorViewModel"
+    must_appear_in_target: true
+    notes: "ViewModel recebe repositórios e serviços pelo factory manual."
+runtime_config: []

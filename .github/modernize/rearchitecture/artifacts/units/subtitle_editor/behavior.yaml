@@ -1,0 +1,27 @@
+unit: subtitle_editor
+side_effects:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:82"
+    effect: "Persiste alterações de texto original/traduzido."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:88"
+    effect: "Persiste timestamps da linha editada."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:204"
+    effect: "Insere nova linha manual associada ao projeto."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:116"
+    condition: "Usuário mescla linha com a próxima."
+    behavior: "Combina linhas e atualiza a sequência persistida."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:136"
+    condition: "Usuário divide uma linha em um instante informado."
+    behavior: "Cria as partes e reindexa as linhas."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt:28"
+    condition: "Usuário remove linha ou solicita retradução."
+    behavior: "Exclui a linha ou chama o contrato Translator para traduzir novamente."
+    must_preserve: true
+error_paths: []
+concurrency:
+  model: coroutine

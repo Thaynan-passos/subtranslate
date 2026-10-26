@@ -1,0 +1,154 @@
+modules:
+  - name: app_container
+    kind: config
+    source_loc: "app/src/main/java/com/example/di/AppContainer.kt:14"
+    used_by_units: [app_launcher, project_setup, processing_screen, extraction_service]
+    fields:
+      - name: context
+        type: android.content.Context
+      - name: projectRepository
+        type: com.example.data.repository.ProjectRepository
+      - name: subtitleRepository
+        type: com.example.data.repository.SubtitleRepository
+      - name: settingsRepository
+        type: com.example.data.repository.SettingsRepository
+      - name: ocrEngine
+        type: com.example.domain.engine.OcrEngine
+      - name: translator
+        type: com.example.domain.engine.Translator
+      - name: extractionPipeline
+        type: com.example.data.pipeline.SubtitleExtractionPipeline
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Composition root manual compartilhado pela Activity e pelo service."
+
+  - name: project_repository
+    kind: utility
+    source_loc: "app/src/main/java/com/example/data/repository/ProjectRepository.kt:10"
+    used_by_units: [app_launcher, project_library, project_setup, processing_screen, extraction_service, subtitle_editor]
+    fields:
+      - name: getAllProjects
+        type: "Flow<List<Project>>"
+      - name: getProjectById
+        type: "suspend (Long) -> Project?"
+      - name: observeProjectById
+        type: "Flow<Project?>"
+      - name: saveProject
+        type: "suspend (Project) -> Long"
+      - name: updateProject
+        type: "suspend (Project) -> Unit"
+      - name: updateProgress
+        type: "suspend (Long, String, Float, String) -> Unit"
+      - name: markAbandonedProcessingProjects
+        type: "suspend (Long?) -> Unit"
+      - name: deleteProject
+        type: "suspend (Long) -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Fachada de acesso a projetos usada pela lista, configuração, processamento, serviço e editor."
+
+  - name: subtitle_repository
+    kind: utility
+    source_loc: "app/src/main/java/com/example/data/repository/SubtitleRepository.kt:11"
+    used_by_units: [extraction_service, subtitle_editor]
+    fields:
+      - name: getLines
+        type: "Flow<List<SubtitleLine>>"
+      - name: getLinesList
+        type: "suspend (Long) -> List<SubtitleLine>"
+      - name: saveLines
+        type: "suspend (List<SubtitleLine>) -> Unit"
+      - name: updateLineText
+        type: "suspend (Long, String, String) -> Unit"
+      - name: updateLineTimestamps
+        type: "suspend (Long, Long, Long) -> Unit"
+      - name: updateLine
+        type: "suspend (SubtitleLine) -> Unit"
+      - name: updateLines
+        type: "suspend (List<SubtitleLine>) -> Unit"
+      - name: deleteLine
+        type: "suspend (Long) -> Unit"
+      - name: clearLines
+        type: "suspend (Long) -> Unit"
+      - name: getCachedTranslation
+        type: "suspend (String, String, String, String) -> String?"
+      - name: cacheTranslation
+        type: "suspend (String, String, String, String, String) -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Abstrai linhas e cache de tradução persistidos."
+
+  - name: settings_repository
+    kind: config
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:18"
+    used_by_units: [app_launcher, extraction_service, subtitle_editor, settings]
+    fields:
+      - name: settings
+        type: "Flow<AppSettings>"
+      - name: updateFps
+        type: "suspend (Int) -> Unit"
+      - name: updateCoverOriginal
+        type: "suspend (Boolean) -> Unit"
+      - name: updateFontSize
+        type: "suspend (Int) -> Unit"
+      - name: updateMaxCharsPerLine
+        type: "suspend (Int) -> Unit"
+      - name: updateGlossary
+        type: "suspend (String) -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Mapeia preferências DataStore para AppSettings."
+
+  - name: extraction_pipeline
+    kind: utility
+    source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:45"
+    used_by_units: [processing_screen, extraction_service]
+    fields:
+      - name: getPipelineState
+        type: "StateFlow<PipelineState> for projectId"
+      - name: execute
+        type: "suspend (Project, AppSettings) -> Result<List<SubtitleLine>>"
+      - name: pause
+        type: "(Long) -> Unit"
+      - name: resume
+        type: "(Long) -> Unit"
+      - name: cancel
+        type: "suspend (Long) -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Processamento de extração e estado usado pela tela e pelo serviço."
+
+  - name: ocr_engine_contract
+    kind: utility
+    source_loc: "app/src/main/java/com/example/domain/engine/OcrEngine.kt:1"
+    used_by_units: [project_setup, extraction_service]
+    fields:
+      - name: recognizeText
+        type: "suspend (Bitmap, String) -> OcrResult"
+      - name: close
+        type: "() -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Contrato de OCR usado pela detecção de ROI e pela extração."
+
+  - name: translator_contract
+    kind: utility
+    source_loc: "app/src/main/java/com/example/domain/engine/Translator.kt:1"
+    used_by_units: [extraction_service, subtitle_editor]
+    fields:
+      - name: downloadModelIfNeeded
+        type: "suspend model acquisition operation"
+      - name: translate
+        type: "suspend translation operation"
+      - name: close
+        type: "() -> Unit"
+    god_class: false
+    split_candidate: false
+    migration_strategy: wrap
+    notes: "Contrato de tradução consumido pelo pipeline e pela ação de retradução do editor."

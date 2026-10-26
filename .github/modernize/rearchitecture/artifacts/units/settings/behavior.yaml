@@ -1,0 +1,17 @@
+unit: settings
+side_effects:
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:290"
+    effect: "Callbacks da tela persistem overlay original, tamanho de fonte, limite de caracteres e glossário em DataStore."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:70"
+    condition: "Glossário vazio ou linha sem separador reconhecido."
+    behavior: "Glossário vazio gera mapa vazio; linhas inválidas são ignoradas."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:62"
+    condition: "Usuário define limite máximo de caracteres por linha."
+    behavior: "Valor salvo é limitado ao intervalo 20–80."
+    must_preserve: true
+error_paths: []
+concurrency:
+  model: coroutine

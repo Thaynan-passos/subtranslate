@@ -1,0 +1,34 @@
+contracts:
+  - name: Android foreground extraction service command
+    unit: extraction_service
+    type: sdk
+    stability: must_preserve
+    source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:136"
+    contract:
+      method: "Intent action START/STOP"
+      path: "com.example.data.service.START; com.example.data.service.STOP"
+      request: "ACTION_START com extra_project_id: Long e extra_project_title: String; ACTION_STOP sem payload"
+      response: "Foreground service inicia ou cancela o job de processamento; Intent START retorna START_REDELIVER_INTENT"
+      error: "Projeto inexistente/erro no pipeline atualiza status do projeto para ERROR; concorrência em projeto diferente também grava estado ERROR."
+      auth: "Service não exportado; somente app pode iniciar."
+    target_contract:
+      method: "SubtitleExtractionService.onStartCommand(Intent?, Int, Int): Int"
+      notes: "Preservar ações, extras, semântica foreground, cancelamento e política de redelivery existentes."
+    semantic_divergence: []
+
+  - name: subtitle file export
+    unit: subtitle_export
+    type: file
+    stability: must_preserve
+    source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:100"
+    contract:
+      method: "Storage Access Framework CreateDocument"
+      path: "application/x-subrip para SRT; text/vtt para WebVTT"
+      request: "Linhas de legenda do projeto e nome de arquivo sugerido"
+      response: "Conteúdo de legenda escrito no URI autorizado pelo usuário; também é possível compartilhar por FileProvider"
+      error: "A gravação/share depende da disponibilidade de URI e do provider Android."
+      auth: "Consentimento do usuário concedido via CreateDocument; FileProvider concede URI temporária de leitura."
+    target_contract:
+      method: "ExportScreen composable com contratos CreateDocument para SRT/VTT"
+      notes: "Preservar formatos, conteúdo, fluxos de seleção de destino e compartilhamento."
+    semantic_divergence: []

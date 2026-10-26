@@ -1,0 +1,29 @@
+unit: processing_screen
+side_effects:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProcessingViewModel.kt:31"
+    effect: "Solicita ao foreground service o início do processamento do projeto."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProcessingViewModel.kt:40"
+    effect: "Encaminha pausa e retomada para o pipeline."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:177"
+    condition: "Projeto observado está IDLE e pipeline não está executando."
+    behavior: "Inicia automaticamente o processamento ao abrir a rota."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:177"
+    condition: "Projeto está ERROR ou PAUSED."
+    behavior: "Não inicia processamento automaticamente; retry é explícito."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/screens/ProcessingScreen.kt:56"
+    condition: "Usuário solicita pausa, retomada, cancelamento, retry ou abertura do editor."
+    behavior: "Invoca o callback correspondente; cancelamento aguarda conclusão antes de voltar."
+    must_preserve: true
+error_paths:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProcessingViewModel.kt:31"
+    trigger: "Projeto não existe ao solicitar início."
+    outcome: "A operação de start retorna sem iniciar o serviço."
+    contract: "Sem resposta de erro explícita na tela para este caso."
+    must_preserve: true
+concurrency:
+  model: coroutine

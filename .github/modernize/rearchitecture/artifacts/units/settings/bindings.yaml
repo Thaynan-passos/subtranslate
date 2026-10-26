@@ -1,0 +1,69 @@
+unit: settings
+bindings:
+  - type: route-declaration
+    name: "settings"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:285"
+    target: "SettingsScreen"
+    must_appear_in_target: true
+    notes: "A Activity observa settings e passa estado/callbacks à tela."
+  - type: convention
+    name: "DataStore Preferences"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:16"
+    target: "subtranslate_settings"
+    must_appear_in_target: true
+    notes: "Preferências são persistidas fora do banco Room."
+runtime_config:
+  - key: "default_fps"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:23"
+    source: code
+    default_value: "3"
+    must_appear_in_target: true
+    notes: "FPS inicial aplicado à configuração de projeto."
+  - key: "min_speech_duration"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:24"
+    source: code
+    default_value: "300"
+    must_appear_in_target: true
+    notes: "Duração mínima de fala em milissegundos."
+  - key: "similarity_threshold"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:25"
+    source: code
+    default_value: "0.85"
+    must_appear_in_target: true
+    notes: "Limiar de similaridade textual."
+  - key: "max_chars_per_line"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:26"
+    source: code
+    default_value: "42"
+    must_appear_in_target: true
+    notes: "Limite de caracteres por linha."
+  - key: "cover_original_overlay"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:27"
+    source: code
+    default_value: "true"
+    must_appear_in_target: true
+    notes: "Habilita cobertura do texto original."
+  - key: "overlay_color_hex"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:28"
+    source: code
+    default_value: "#E6000000"
+    must_appear_in_target: true
+    notes: "Cor da camada de cobertura."
+  - key: "subtitle_font_size"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:29"
+    source: code
+    default_value: "18"
+    must_appear_in_target: true
+    notes: "Tamanho da fonte da legenda."
+  - key: "subtitle_text_color"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:30"
+    source: code
+    default_value: "#FFFFFFFF"
+    must_appear_in_target: true
+    notes: "Cor do texto da legenda."
+  - key: "glossary_raw"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:31"
+    source: code
+    default_value: "vazio"
+    must_appear_in_target: true
+    notes: "Glossário bruto parseado em pares origem/destino."

@@ -1,0 +1,15 @@
+unit: processing_screen
+bindings:
+  - type: route-declaration
+    name: "processing/{id}"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:161"
+    target: "ProcessingScreen"
+    must_appear_in_target: true
+    notes: "ID é extraído da rota e usado para criar estado/VM do projeto."
+  - type: di-registration
+    name: "ProcessingViewModel.Factory"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:169"
+    target: "ProcessingViewModel"
+    must_appear_in_target: true
+    notes: "Recebe Context, ProjectRepository e pipeline."
+runtime_config: []

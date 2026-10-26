@@ -1,0 +1,21 @@
+unit: extraction_service
+bindings:
+  - type: xml-config
+    name: "SubtitleExtractionService"
+    source_loc: "app/src/main/AndroidManifest.xml:31"
+    target: "com.example.data.service.SubtitleExtractionService"
+    must_appear_in_target: true
+    notes: "Serviço não exportado, declarado como dataSync|mediaProcessing."
+  - type: convention
+    name: "Foreground service start/stop actions"
+    source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:136"
+    target: "ACTION_START/ACTION_STOP intents"
+    must_appear_in_target: true
+    notes: "START entrega extras de ID/título; STOP cancela o job."
+runtime_config:
+  - key: "FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PROCESSING / FOREGROUND_SERVICE_DATA_SYNC"
+    source_loc: "app/src/main/AndroidManifest.xml:6"
+    source: xml
+    default_value: "Permissões declaradas no Manifest"
+    must_appear_in_target: true
+    notes: "Permissões e tipos limitam a execução do serviço conforme a plataforma Android."

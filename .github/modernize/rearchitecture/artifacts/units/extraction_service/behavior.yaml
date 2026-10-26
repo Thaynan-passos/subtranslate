@@ -1,0 +1,46 @@
+unit: extraction_service
+side_effects:
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:53"
+    effect: "Cria canal/notificação e promove o service a foreground com tipo compatível com a versão Android."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:119"
+    effect: "Persiste estado/progresso do projeto durante o pipeline e salva legendas extraídas/traduzidas."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:82"
+    effect: "Publica activeProjectId enquanto o processamento está em execução."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:35"
+    condition: "Intent action é ACTION_STOP."
+    behavior: "Cancela o job ativo e encerra o foreground service quando o job terminou."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:66"
+    condition: "Já existe job ativo para outro projeto."
+    behavior: "Não inicia concorrente; registra erro no projeto solicitado."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:104"
+    condition: "Mutex do projeto não pode ser adquirido."
+    behavior: "Retorna Result.failure indicando processamento já existente."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:89"
+    condition: "Execução termina com sucesso e permissão de notificação existe."
+    behavior: "Destaca a notificação ao encerrar o foreground; nos demais casos remove e cancela."
+    must_preserve: true
+error_paths:
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:91"
+    trigger: "Projeto ausente ou exceção não relacionada a cancelamento durante inicialização/execução."
+    outcome: "Atualiza status do projeto para ERROR, progresso zero e mensagem localizada; limpa estado no finally."
+    contract: "Cancelamento é relançado; outras exceções persistem estado de erro."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:124"
+    trigger: "Android sinaliza timeout do foreground service."
+    outcome: "Cancela job com CancellationException e solicita parada do service."
+    contract: "onTimeout(startId, fgsType) do Android Service."
+    must_preserve: true
+concurrency:
+  model: coroutine
+  tx_boundary:
+    source_loc: "app/src/main/java/com/example/data/local/dao/SubtitleLineDao.kt:35"
+    scope: "Atualização em lote das entidades SubtitleLineEntity pelo DAO updateLines."
+    isolation: "Gerenciada pelo Room."
+    must_preserve: true

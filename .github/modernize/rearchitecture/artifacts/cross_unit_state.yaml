@@ -1,0 +1,15 @@
+flows:
+  - name: active extraction service project marker
+    medium: static
+    key: "SubtitleExtractionService.activeProjectId"
+    writer:
+      unit: extraction_service
+      source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:82"
+    reader:
+      unit: app_launcher
+      source_loc: "app/src/main/java/com/example/MainActivity.kt:75"
+    pairing: matched
+    must_preserve: true
+    must_confirm: null
+    verification_hint: "Durante uma extração, confirmar que a Activity não marca o projeto ativo como abandonado; após encerramento, confirmar que o marcador volta a null."
+    notes: "O valor também é limpo no finally do serviço e observado durante trim de memória em SubTranslateApp."

@@ -1,0 +1,15 @@
+unit: project_library
+bindings:
+  - type: route-declaration
+    name: "projects"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:100"
+    target: "ProjectListScreen"
+    must_appear_in_target: true
+    notes: "Rota inicial e tela de navegação para projetos."
+  - type: di-registration
+    name: "ProjectViewModel.Factory"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:90"
+    target: "ProjectViewModel"
+    must_appear_in_target: true
+    notes: "ViewModel recebe ProjectRepository por factory manual."
+runtime_config: []

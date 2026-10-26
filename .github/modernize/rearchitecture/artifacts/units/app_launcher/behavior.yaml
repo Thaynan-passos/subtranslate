@@ -1,0 +1,23 @@
+unit: app_launcher
+side_effects:
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:74"
+    effect: "Na inicialização, marca projetos PROCESSING sem serviço ativo como interrompidos."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:78"
+    effect: "Solicita permissão de notificações em Android 13 ou superior quando ainda não concedida."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/SubTranslateApp.kt:13"
+    effect: "Cria AppContainer ao inicializar o processo Android."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:106"
+    condition: "Projeto selecionado está COMPLETED."
+    behavior: "Navega para editor; projetos em outros estados navegam para processamento."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:78"
+    condition: "SDK Android >= TIRAMISU e POST_NOTIFICATIONS não concedida."
+    behavior: "Inicia solicitação de permissão."
+    must_preserve: true
+error_paths: []
+concurrency:
+  model: event-loop

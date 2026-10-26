@@ -1,0 +1,27 @@
+unit: app_launcher
+bindings:
+  - type: xml-config
+    name: "Application SubTranslateApp"
+    source_loc: "app/src/main/AndroidManifest.xml:10"
+    target: "com.example.SubTranslateApp"
+    must_appear_in_target: true
+    notes: "Application injeta composition root e recebe trim de memória."
+  - type: xml-config
+    name: "MAIN/LAUNCHER Activity"
+    source_loc: "app/src/main/AndroidManifest.xml:19"
+    target: "com.example.MainActivity"
+    must_appear_in_target: true
+    notes: "Activity exportada como launcher; suporta as rotas de telas internas."
+  - type: convention
+    name: "Dispatcher de rotas Compose"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:99"
+    target: "currentRoute/backStack"
+    must_appear_in_target: true
+    notes: "Rotas string são selecionadas manualmente pela Activity."
+runtime_config:
+  - key: "POST_NOTIFICATIONS"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:78"
+    source: annotation
+    default_value: "Permissão solicitada em runtime no Android 13+"
+    must_appear_in_target: true
+    notes: "Controla apresentação das notificações do processamento."

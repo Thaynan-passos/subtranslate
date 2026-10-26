@@ -1,0 +1,27 @@
+unit: project_setup
+bindings:
+  - type: route-declaration
+    name: "config"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:116"
+    target: "ProjectConfigScreen"
+    must_appear_in_target: true
+    notes: "Rota de configuração com estado isolado por sessão."
+  - type: di-registration
+    name: "ProjectConfigViewModel.Factory"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:123"
+    target: "ProjectConfigViewModel"
+    must_appear_in_target: true
+    notes: "Recebe Context, ProjectRepository e OcrEngine por factory manual."
+  - type: convention
+    name: "ActivityResultContracts.OpenDocument"
+    source_loc: "app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt:100"
+    target: "Seleção de vídeo via Storage Access Framework"
+    must_appear_in_target: true
+    notes: "A seleção é feita por URI de documento Android."
+runtime_config:
+  - key: "default_fps"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:135"
+    source: code
+    default_value: "3"
+    must_appear_in_target: true
+    notes: "Valor das preferências inicializa o FPS de amostragem do formulário."

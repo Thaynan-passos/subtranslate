@@ -1,0 +1,209 @@
+units:
+  - name: app_launcher
+    trigger: page
+    trigger_detail: "Android MAIN/LAUNCHER; MainActivity abre a lista de projetos e despacha rotas."
+    source_anchors:
+      - path: app/src/main/java/com/example/MainActivity.kt
+        line: 42
+      - path: app/src/main/java/com/example/SubTranslateApp.kt
+        line: 8
+    exported_signature:
+      - method: "Activity MainActivity.onCreate(Bundle?)"
+        source_loc: "app/src/main/java/com/example/MainActivity.kt:44"
+        stability: must_preserve
+    dynamic_entrypoints:
+      - target: "com.example.SubTranslateApp"
+        mechanism: xml-config
+        source_loc: "app/src/main/AndroidManifest.xml:10"
+      - target: "com.example.MainActivity"
+        mechanism: xml-config
+        source_loc: "app/src/main/AndroidManifest.xml:19"
+    depends_on:
+      - unit: project_library
+        via: "rota projects e ProjectListScreen"
+      - unit: project_setup
+        via: "rota config e ProjectConfigScreen"
+      - unit: processing_screen
+        via: "rota processing/{id} e ProcessingScreen"
+      - unit: subtitle_editor
+        via: "rota editor/{id} e ReviewEditorScreen"
+      - unit: subtitle_export
+        via: "rota export/{id} e ExportScreen"
+      - unit: settings
+        via: "rota settings e SettingsScreen"
+    shared_refs:
+      - module: app_container
+        used_fields: [projectRepository, settingsRepository, ocrEngine]
+      - module: project_repository
+        used_fields: [markAbandonedProcessingProjects]
+      - module: settings_repository
+        used_fields: [settings]
+
+  - name: project_library
+    trigger: page
+    trigger_detail: "Lista de projetos; seleção, criação, configuração, exportação, configurações e exclusão."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ProjectListScreen.kt
+        line: 60
+      - path: app/src/main/java/com/example/ui/viewmodel/ProjectViewModel.kt
+        line: 13
+    exported_signature:
+      - method: "Composable ProjectListScreen(projects, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProjectListScreen.kt:60"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on:
+      - unit: project_setup
+        via: "onNewProjectClick"
+      - unit: processing_screen
+        via: "seleção de projeto não concluído"
+      - unit: subtitle_editor
+        via: "seleção de projeto concluído"
+      - unit: settings
+        via: "onSettingsClick"
+    shared_refs:
+      - module: project_repository
+        used_fields: [getAllProjects, deleteProject]
+
+  - name: project_setup
+    trigger: page
+    trigger_detail: "Seleção de vídeo, ROI, idiomas, FPS e modo de saída."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt
+        line: 86
+      - path: app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt
+        line: 42
+    exported_signature:
+      - method: "Composable ProjectConfigScreen(uiState, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt:86"
+        stability: must_preserve
+      - method: "suspend ProjectConfigViewModel.createProject(): Long?"
+        source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:233"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on:
+      - unit: processing_screen
+        via: "criação do projeto seguida por navegação para processamento"
+    shared_refs:
+      - module: project_repository
+        used_fields: [saveProject]
+      - module: app_container
+        used_fields: [projectRepository, ocrEngine]
+
+  - name: processing_screen
+    trigger: page
+    trigger_detail: "Rota processing/{id}; acompanha estado e permite iniciar, pausar, retomar, cancelar, tentar novamente ou abrir editor."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ProcessingScreen.kt
+        line: 56
+      - path: app/src/main/java/com/example/ui/viewmodel/ProcessingViewModel.kt
+        line: 18
+    exported_signature:
+      - method: "Composable ProcessingScreen(project, pipelineState, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProcessingScreen.kt:56"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on:
+      - unit: extraction_service
+        via: "startProcessing aciona SubtitleExtractionService"
+      - unit: subtitle_editor
+        via: "ação de abrir editor após conclusão"
+    shared_refs:
+      - module: project_repository
+        used_fields: [observeProjectById, getProjectById]
+      - module: extraction_pipeline
+        used_fields: [getPipelineState, pause, resume, cancel]
+      - module: app_container
+        used_fields: [extractionPipeline]
+
+  - name: extraction_service
+    trigger: handler
+    trigger_detail: "Intent ACTION_START/ACTION_STOP do foreground service não exportado."
+    source_anchors:
+      - path: app/src/main/java/com/example/data/service/SubtitleExtractionService.kt
+        line: 24
+      - path: app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt
+        line: 45
+    exported_signature:
+      - method: "Service SubtitleExtractionService.onStartCommand(Intent?, Int, Int): Int"
+        source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:32"
+        stability: must_preserve
+      - method: "suspend SubtitleExtractionPipeline.execute(Project, AppSettings): Result<List<SubtitleLine>>"
+        source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:96"
+        stability: must_preserve
+    dynamic_entrypoints:
+      - target: "com.example.data.service.SubtitleExtractionService"
+        mechanism: xml-config
+        source_loc: "app/src/main/AndroidManifest.xml:31"
+    depends_on: []
+    shared_refs:
+      - module: project_repository
+        used_fields: [getProjectById, updateProgress]
+      - module: subtitle_repository
+        used_fields: [saveLines, clearLines, getCachedTranslation, cacheTranslation]
+      - module: settings_repository
+        used_fields: [settings]
+      - module: extraction_pipeline
+        used_fields: [execute]
+      - module: app_container
+        used_fields: [projectRepository, settingsRepository, extractionPipeline]
+      - module: ocr_engine_contract
+        used_fields: [recognizeText, close]
+      - module: translator_contract
+        used_fields: [downloadModelIfNeeded, translate, close]
+
+  - name: subtitle_editor
+    trigger: page
+    trigger_detail: "Rota editor/{id}; revisão e edição das linhas extraídas."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ReviewEditorScreen.kt
+        line: 96
+      - path: app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt
+        line: 28
+    exported_signature:
+      - method: "Composable ReviewEditorScreen(projectId, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ReviewEditorScreen.kt:96"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on:
+      - unit: subtitle_export
+        via: "navegação para exportação de legendas"
+    shared_refs:
+      - module: project_repository
+        used_fields: [observeProjectById]
+      - module: subtitle_repository
+        used_fields: [getLines, updateLineText, updateLineTimestamps, updateLine, updateLines, deleteLine]
+      - module: settings_repository
+        used_fields: [settings]
+      - module: translator_contract
+        used_fields: [translate]
+
+  - name: subtitle_export
+    trigger: page
+    trigger_detail: "Rota export/{id}; grava SRT/VTT pelo Storage Access Framework e compartilha via FileProvider."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ExportScreen.kt
+        line: 72
+    exported_signature:
+      - method: "Composable ExportScreen(projectId, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:72"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on: []
+    shared_refs: []
+
+  - name: settings
+    trigger: page
+    trigger_detail: "Rota settings; alterações de parâmetros e glossário persistem em DataStore."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/SettingsScreen.kt
+        line: 54
+    exported_signature:
+      - method: "Composable SettingsScreen(settings, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/SettingsScreen.kt:54"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on: []
+    shared_refs:
+      - module: settings_repository
+        used_fields: [settings, updateFps, updateCoverOriginal, updateFontSize, updateMaxCharsPerLine, updateGlossary]
