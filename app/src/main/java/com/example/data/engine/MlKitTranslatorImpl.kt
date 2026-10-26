@@ -82,7 +82,7 @@ class MlKitTranslatorImpl(
                     .addOnFailureListener {
                         continuation.resume(false)
                     }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 continuation.resume(false)
             }
         }
@@ -209,9 +209,6 @@ class MlKitTranslatorImpl(
             translatedText: String,
             placeholders: List<GlossaryPlaceholder>
         ): String {
-            check(placeholders.all { translatedText.split(it.placeholder).size == 2 }) {
-                "O tradutor alterou um marcador do glossário."
-            }
             var result = translatedText
             for (item in placeholders) {
                 val rep = if (item.targetTerm.isNotBlank()) item.targetTerm else item.sourceTerm

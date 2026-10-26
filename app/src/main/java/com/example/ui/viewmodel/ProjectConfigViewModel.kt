@@ -154,7 +154,7 @@ class ProjectConfigViewModel(
 
                 val samplePoints = listOf(0.15f, 0.30f, 0.45f, 0.60f, 0.75f)
                 for (ratio in samplePoints) {
-                    val timeUs = (duration * ratio * 1000).toLong()
+                    val timeUs = (duration * ratio.toDouble() * 1000.0).toLong()
                     val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                     if (frame != null) {
                         try {

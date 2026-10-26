@@ -15,11 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -196,7 +194,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Glossário & Termos Personalizados", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
@@ -209,7 +207,6 @@ fun SettingsScreen(
                         value = glossaryText,
                         onValueChange = {
                             glossaryText = it
-                            onGlossaryChanged(it)
                         },
                         placeholder = { Text("Ex: Fireball -> Bola de Fogo\nHP -> Pontos de Vida") },
                         modifier = Modifier

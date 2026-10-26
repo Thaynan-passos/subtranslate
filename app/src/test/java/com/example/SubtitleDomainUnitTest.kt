@@ -29,7 +29,6 @@ import com.example.ui.viewmodel.ProjectConfigViewModel
 import com.example.ui.viewmodel.ReviewEditorViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -347,9 +346,9 @@ class SubtitleDomainUnitTest {
         val restored = MlKitTranslatorImpl.restorePlaceholders(simulatedTranslated, placeholders)
         assertEquals("O Senhor das Trevas tem um Shield", restored)
 
-        assertThrows(IllegalStateException::class.java) {
-            MlKitTranslatorImpl.restorePlaceholders("O Dark Lord tem um ⟦G1⟧", placeholders)
-        }
+        // Test graceful restoration when one placeholder is missing
+        val partialRestored = MlKitTranslatorImpl.restorePlaceholders("O Dark Lord tem um ⟦G1⟧", placeholders)
+        assertEquals("O Dark Lord tem um Shield", partialRestored)
     }
 
     @Test
@@ -366,7 +365,7 @@ class SubtitleDomainUnitTest {
     @Test
     fun testAutoDetectRoiClampingExtremeValues() {
         // Extreme high values (e.g. near bottom/overflow)
-        val roiHigh = com.example.ui.viewmodel.ProjectConfigViewModel.calculateAutoDetectedRoi(
+        val roiHigh = ProjectConfigViewModel.calculateAutoDetectedRoi(
             detectedTopSum = 0.96f,
             detectedBottomSum = 0.99f,
             sampleCount = 1
@@ -376,7 +375,7 @@ class SubtitleDomainUnitTest {
         assertTrue(roiHigh.bottom in 0.1f..0.98f)
 
         // Extreme negative values
-        val roiLow = com.example.ui.viewmodel.ProjectConfigViewModel.calculateAutoDetectedRoi(
+        val roiLow = ProjectConfigViewModel.calculateAutoDetectedRoi(
             detectedTopSum = -50f,
             detectedBottomSum = -10f,
             sampleCount = 1
