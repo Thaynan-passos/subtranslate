@@ -130,19 +130,8 @@ class ProjectConfigViewModel(
     }
 
     fun updateRoi(left: Float, top: Float, right: Float, bottom: Float) {
-        val currentRoi = _uiState.value.roi
-        val coercedLeft = (left.takeIf { it.isFinite() } ?: currentRoi.left).coerceIn(0.0f, 0.85f)
-        val coercedTop = (top.takeIf { it.isFinite() } ?: currentRoi.top).coerceIn(0.0f, 0.85f)
-        val coercedRight = (right.takeIf { it.isFinite() } ?: currentRoi.right).coerceIn(coercedLeft + 0.05f, 1.0f)
-        val coercedBottom = (bottom.takeIf { it.isFinite() } ?: currentRoi.bottom).coerceIn(coercedTop + 0.05f, 1.0f)
-
         _uiState.value = _uiState.value.copy(
-            roi = RegionOfInterest(
-                left = coercedLeft,
-                top = coercedTop,
-                right = coercedRight,
-                bottom = coercedBottom
-            )
+            roi = normalizeRoi(left, top, right, bottom, _uiState.value.roi)
         )
     }
 
@@ -280,6 +269,28 @@ class ProjectConfigViewModel(
     }
 
     companion object {
+        internal fun normalizeRoi(
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+            currentRoi: RegionOfInterest
+        ): RegionOfInterest {
+            val coercedLeft = (left.takeIf { it.isFinite() } ?: currentRoi.left).coerceIn(0.0f, 0.85f)
+            val coercedTop = (top.takeIf { it.isFinite() } ?: currentRoi.top).coerceIn(0.0f, 0.85f)
+            val coercedRight = (right.takeIf { it.isFinite() } ?: currentRoi.right)
+                .coerceIn(coercedLeft + 0.05f, 1.0f)
+            val coercedBottom = (bottom.takeIf { it.isFinite() } ?: currentRoi.bottom)
+                .coerceIn(coercedTop + 0.05f, 1.0f)
+
+            return RegionOfInterest(
+                left = coercedLeft,
+                top = coercedTop,
+                right = coercedRight,
+                bottom = coercedBottom
+            )
+        }
+
         fun calculateAutoDetectedRoi(
             detectedTopSum: Float,
             detectedBottomSum: Float,

@@ -243,27 +243,39 @@ class SubtitleDomainUnitTest {
     }
 
     @Test
-    fun testUpdateRoiDoesNotThrowOnAnyInput() {
-        fun coerceRoi(left: Float, top: Float, right: Float, bottom: Float): RegionOfInterest {
-            val coercedLeft = left.coerceIn(0.0f, 0.85f)
-            val coercedTop = top.coerceIn(0.0f, 0.85f)
-            val coercedRight = right.coerceIn(coercedLeft + 0.05f, 1.0f)
-            val coercedBottom = bottom.coerceIn(coercedTop + 0.05f, 1.0f)
-            return RegionOfInterest(coercedLeft, coercedTop, coercedRight, coercedBottom)
-        }
+    fun testRoiNormalizationClampsInvalidCoordinatesAndUsesFallbacks() {
+        val defaultRoi = RegionOfInterest(left = 0.05f, top = 0.72f, right = 0.95f, bottom = 0.95f)
 
-        // Extreme negative, inverted, and oversized coordinates
-        val r1 = coerceRoi(-100f, 200f, -50f, 0f)
-        assertTrue(r1.left <= r1.right)
-        assertTrue(r1.top <= r1.bottom)
+        val inverted = ProjectConfigViewModel.normalizeRoi(
+            left = 0.99f,
+            top = 0.99f,
+            right = 0.01f,
+            bottom = 0.01f,
+            currentRoi = defaultRoi
+        )
+        assertTrue(inverted.left < inverted.right)
+        assertTrue(inverted.top < inverted.bottom)
 
-        val r2 = coerceRoi(0.99f, 0.99f, 0.01f, 0.01f)
-        assertTrue(r2.left < r2.right)
-        assertTrue(r2.top < r2.bottom)
+        val outOfRange = ProjectConfigViewModel.normalizeRoi(
+            left = -100f,
+            top = 200f,
+            right = 1000f,
+            bottom = -500f,
+            currentRoi = defaultRoi
+        )
+        assertEquals(0f, outOfRange.left)
+        assertEquals(0.85f, outOfRange.top)
+        assertEquals(1f, outOfRange.right)
+        assertEquals(0.9f, outOfRange.bottom, 0.0001f)
 
-        val r3 = coerceRoi(1000f, -500f, 0.1f, 0.05f)
-        assertTrue(r3.left >= 0f && r3.right <= 1f)
-        assertTrue(r3.top >= 0f && r3.bottom <= 1f)
+        val nonFinite = ProjectConfigViewModel.normalizeRoi(
+            left = Float.NaN,
+            top = Float.POSITIVE_INFINITY,
+            right = Float.NaN,
+            bottom = Float.NEGATIVE_INFINITY,
+            currentRoi = defaultRoi
+        )
+        assertEquals(defaultRoi, nonFinite)
     }
 
     @Test

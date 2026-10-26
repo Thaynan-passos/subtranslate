@@ -151,6 +151,7 @@ class SubtitleExtractionPipeline(
             }
 
             val retriever = MediaMetadataRetriever()
+            var failedOcrFrames = 0
             try {
                 val videoUri = Uri.parse(project.videoUri)
                 retriever.setDataSource(context, videoUri)
@@ -184,7 +185,6 @@ class SubtitleExtractionPipeline(
                 var lastThumb: IntArray? = null
                 var lastOcrText = ""
                 var lastConfidence = 0f
-                var failedOcrFrames = 0
 
                 var currentTimeMs = 0L
                 val totalSteps = (durationMs / intervalMs).coerceAtLeast(1L)

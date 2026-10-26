@@ -194,12 +194,12 @@ fun ReviewEditorScreen(
         } catch (_: Exception) {
             Color(0xF0000000)
         }
-        val subtitleTextColor = remember(settings.subtitleTextColorHex) {
-            try {
-                Color(android.graphics.Color.parseColor(settings.subtitleTextColorHex))
-            } catch (_: IllegalArgumentException) {
-                Color.White
-            }
+    }
+    val subtitleTextColor = remember(settings.subtitleTextColorHex) {
+        try {
+            Color(android.graphics.Color.parseColor(settings.subtitleTextColorHex))
+        } catch (_: IllegalArgumentException) {
+            Color.White
         }
     }
 

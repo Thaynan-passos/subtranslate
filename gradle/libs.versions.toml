@@ -21,7 +21,6 @@ kotlinxCoroutinesAndroid = "1.10.2"
 kotlinxCoroutinesCore = "1.10.2"
 datastorePreferences = "1.1.7"
 robolectric = "4.16.1"
-secretsGradlePlugin = "2.0.1"
 media3 = "1.5.1"
 mlkitTextRecognition = "16.0.1"
 mlkitTextRecognitionCJK = "16.0.1"
@@ -72,4 +71,3 @@ mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref 
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
-secrets = { id = "com.google.android.libraries.mapsplatform.secrets-gradle-plugin", version.ref = "secretsGradlePlugin" }
