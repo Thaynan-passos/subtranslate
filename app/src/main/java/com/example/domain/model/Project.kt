@@ -30,7 +30,7 @@ data class Project(
     val videoHeight: Int = 1080,
     val sourceLanguage: String = "en",
     val targetLanguage: String = "pt",
-    val samplingFps: Int = 3,
+    val samplingFps: Int = 2,
     val outputMode: OutputMode = OutputMode.SRT_ONLY,
     val status: ProjectStatus = ProjectStatus.IDLE,
     val progress: Float = 0f,

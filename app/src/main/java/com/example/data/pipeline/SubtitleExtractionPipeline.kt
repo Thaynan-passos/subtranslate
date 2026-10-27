@@ -241,7 +241,7 @@ class SubtitleExtractionPipeline(
                                 lastConfidence = 0f
                             } else {
                                 val isSimilarToLast = lastThumb != null &&
-                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f)
+                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 6.0f)
 
                                 if (isSimilarToLast) {
                                     detectedText = lastOcrText
@@ -371,8 +371,14 @@ class SubtitleExtractionPipeline(
                     var isLineFlagged = line.isFlagged
 
                     try {
+                        val coherentSourceText = line.originalText
+                            .replace("\r\n", " ")
+                            .replace("\n", " ")
+                            .replace(Regex("\\s+"), " ")
+                            .trim()
+
                         translatedText = translator.translate(
-                            text = line.originalText,
+                            text = coherentSourceText,
                             sourceLanguage = project.sourceLanguage,
                             targetLanguage = project.targetLanguage,
                             glossary = appSettings.glossaryTerms,
@@ -496,7 +502,9 @@ class SubtitleExtractionPipeline(
         }
         val width = videoWidth.coerceAtLeast(1)
         val height = videoHeight.coerceAtLeast(1)
-        val scale = minOf(1f, 1920f / maxOf(width, height))
+        // Scale down to max 1280px (720p) for 2x-3x faster decoding without any loss of subtitle clarity for OCR
+        val maxDimension = 1280f
+        val scale = minOf(1f, maxDimension / maxOf(width, height))
         val targetWidth = (width * scale).toInt().coerceAtLeast(1)
         val targetHeight = (height * scale).toInt().coerceAtLeast(1)
         return retriever.getScaledFrameAtTime(

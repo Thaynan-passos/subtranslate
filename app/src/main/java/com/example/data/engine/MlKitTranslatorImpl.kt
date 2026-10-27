@@ -2,6 +2,7 @@ package com.example.data.engine
 
 import com.example.data.repository.SubtitleRepository
 import com.example.domain.engine.Translator
+import com.example.domain.util.BuiltInGlossary
 import com.example.domain.util.LanguageHelper
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
@@ -20,7 +21,7 @@ class MlKitTranslatorImpl(
 
     override val name: String = "ML Kit Translate (Offline)"
 
-    private val cacheEngine = "$name-glossary-v2"
+    private val cacheEngine = "$name-glossary-v3"
     private val activeClients = ConcurrentHashMap<String, com.google.mlkit.nl.translate.Translator>()
     private val downloadedModelPairs = ConcurrentHashMap.newKeySet<String>()
 
@@ -103,15 +104,18 @@ class MlKitTranslatorImpl(
     ): String {
         if (text.isBlank()) return text
 
+        // Biblioteca embutida + glossário do usuário (o do usuário tem prioridade).
+        val effectiveGlossary = BuiltInGlossary.forPair(sourceLanguage, targetLanguage) + glossary
+
         // Check local Room cache first if not bypassing
         if (!bypassCache) {
             val cached = repository.getCachedTranslation(text, sourceLanguage, targetLanguage, cacheEngine)
             if (cached != null) {
-                return applyGlossary(cached, glossary)
+                return applyGlossary(cached, effectiveGlossary)
             }
         }
 
-        val (preparedText, placeholders) = preparePlaceholders(text, glossary)
+        val (preparedText, placeholders) = preparePlaceholders(text, effectiveGlossary)
         val key = modelPairKey(sourceLanguage, targetLanguage)
         if (!downloadedModelPairs.contains(key) &&
             !downloadModelIfNeeded(sourceLanguage, targetLanguage, requireWifi = false, onProgress = {})
@@ -127,7 +131,11 @@ class MlKitTranslatorImpl(
                 .addOnFailureListener { ex -> continuation.resumeWithException(ex) }
         }
 
-        val markersIntact = placeholders.all { rawTranslatedWithPlaceholders.contains(it.placeholder) }
+        val markersIntact = placeholders.all {
+            val tag = it.placeholder.removeSurrounding("⟦", "⟧")
+            val regex = Regex("⟦\\s*$tag\\s*⟧|\\[\\s*$tag\\s*\\]|${Regex.escape(it.placeholder)}")
+            regex.containsMatchIn(rawTranslatedWithPlaceholders)
+        }
         if (markersIntact) {
             val withoutGlossary = restoreSourceTerms(rawTranslatedWithPlaceholders, placeholders)
             if (withoutGlossary.isNotBlank()) {
@@ -142,7 +150,7 @@ class MlKitTranslatorImpl(
                 .addOnSuccessListener { result -> continuation.resume(result) }
                 .addOnFailureListener { ex -> continuation.resumeWithException(ex) }
         }
-        return applyGlossary(fallback, glossary)
+        return applyGlossary(fallback, effectiveGlossary)
     }
 
     override fun close() {
@@ -212,7 +220,9 @@ class MlKitTranslatorImpl(
             var result = translatedText
             for (item in placeholders) {
                 val rep = if (item.targetTerm.isNotBlank()) item.targetTerm else item.sourceTerm
-                result = result.replace(item.placeholder, rep)
+                val tag = item.placeholder.removeSurrounding("⟦", "⟧")
+                val regex = Regex("⟦\\s*$tag\\s*⟧|\\[\\s*$tag\\s*\\]|${Regex.escape(item.placeholder)}")
+                result = result.replace(regex, Matcher.quoteReplacement(rep))
             }
             return result
         }
@@ -223,7 +233,9 @@ class MlKitTranslatorImpl(
         ): String {
             var result = translatedText
             for (item in placeholders) {
-                result = result.replace(item.placeholder, item.sourceTerm)
+                val tag = item.placeholder.removeSurrounding("⟦", "⟧")
+                val regex = Regex("⟦\\s*$tag\\s*⟧|\\[\\s*$tag\\s*\\]|${Regex.escape(item.placeholder)}")
+                result = result.replace(regex, Matcher.quoteReplacement(item.sourceTerm))
             }
             return result
         }

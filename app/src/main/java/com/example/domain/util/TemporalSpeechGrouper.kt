@@ -4,9 +4,9 @@ import com.example.domain.model.RawFrameDetection
 import com.example.domain.model.SubtitleLine
 
 class TemporalSpeechGrouper(
-    private val similarityThreshold: Float = 0.85f,
+    private val similarityThreshold: Float = 0.90f,
     private val minDurationMs: Long = 300L,
-    private val sampleIntervalMs: Long = 333L, // approx for 3 fps
+    private val sampleIntervalMs: Long = 500L,
     private val minConsecutiveFrames: Int = 2,
     private val videoDurationMs: Long = Long.MAX_VALUE
 ) {
@@ -34,7 +34,7 @@ class TemporalSpeechGrouper(
 
                 // If within reasonable frame gap (e.g., at most 2 samples missed) and similar text
                 val isContinuation = gap <= (sampleIntervalMs * 2.5f) &&
-                        sim >= maxOf(similarityThreshold, 0.95f)
+                        sim >= similarityThreshold
 
                 if (isContinuation) {
                     currentCluster.add(detection)
@@ -71,22 +71,24 @@ class TemporalSpeechGrouper(
             val bestText = selectBestText(cluster)
             val avgConfidence = cluster.map { it.confidence }.average().toFloat()
 
-            initialLines.add(
-                SubtitleLine(
-                    id = 0,
-                    projectId = projectId,
-                    index = index++,
-                    startTimeMs = startTime,
-                    endTimeMs = endTime,
-                    originalText = bestText,
-                    translatedText = "",
-                    confidence = avgConfidence,
-                    isFlagged = avgConfidence < 0.70f
+            if (bestText.isNotBlank()) {
+                initialLines.add(
+                    SubtitleLine(
+                        id = 0,
+                        projectId = projectId,
+                        index = index++,
+                        startTimeMs = startTime,
+                        endTimeMs = endTime,
+                        originalText = bestText,
+                        translatedText = "",
+                        confidence = avgConfidence,
+                        isFlagged = avgConfidence < 0.70f
+                    )
                 )
-            )
+            }
         }
 
-        // Merge adjacent lines if gap is tiny (< 300ms) and text is identical
+        // Merge adjacent lines if gap is tiny (< 500ms) and text is similar
         return mergeAdjacentSimilarLines(initialLines)
     }
 
@@ -95,20 +97,33 @@ class TemporalSpeechGrouper(
         val confidences = mutableMapOf<String, Float>()
 
         for (item in cluster) {
-            val trimmed = item.text.trim()
-            frequencies[trimmed] = (frequencies[trimmed] ?: 0) + 1
-            val currentMaxConf = confidences[trimmed] ?: 0f
-            if (item.confidence > currentMaxConf) {
-                confidences[trimmed] = item.confidence
+            val cleaned = cleanSubtitleText(item.text)
+            if (cleaned.isNotBlank()) {
+                frequencies[cleaned] = (frequencies[cleaned] ?: 0) + 1
+                val currentMaxConf = confidences[cleaned] ?: 0f
+                if (item.confidence > currentMaxConf) {
+                    confidences[cleaned] = item.confidence
+                }
             }
         }
 
         // Prefer highest frequency, tie-break with confidence and length
-        return frequencies.maxWithOrNull(
+        val best = frequencies.maxWithOrNull(
             compareBy<Map.Entry<String, Int>> { it.value }
                 .thenBy { confidences[it.key] ?: 0f }
                 .thenBy { it.key.length }
-        )?.key ?: cluster.first().text.trim()
+        )?.key
+
+        return best ?: cleanSubtitleText(cluster.first().text)
+    }
+
+    private fun cleanSubtitleText(text: String): String {
+        return text
+            .lines()
+            .map { it.trim() }
+            .filter { line -> line.isNotBlank() && line.any { ch -> ch.isLetterOrDigit() } }
+            .joinToString("\n")
+            .trim()
     }
 
     private fun mergeAdjacentSimilarLines(lines: List<SubtitleLine>): List<SubtitleLine> {
@@ -122,10 +137,17 @@ class TemporalSpeechGrouper(
             val gap = next.startTimeMs - current.endTimeMs
             val sim = Levenshtein.normalizedSimilarity(current.originalText, next.originalText)
 
-            if (gap in 0..400 && sim >= 0.95f) {
-                // Merge into current
+            val mergeThreshold = maxOf(similarityThreshold, 0.92f)
+            if (gap in 0..400 && sim >= mergeThreshold) {
+                // Merge into current, preferring the longer/higher confidence text
+                val chosenText = if (next.confidence > current.confidence && next.originalText.length >= current.originalText.length) {
+                    next.originalText
+                } else {
+                    current.originalText
+                }
                 current = current.copy(
                     endTimeMs = next.endTimeMs,
+                    originalText = chosenText,
                     confidence = (current.confidence + next.confidence) / 2f
                 )
             } else {

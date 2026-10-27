@@ -45,7 +45,7 @@ class SubtitleExtractionService : Service() {
         val projectTitle = intent?.getStringExtra(EXTRA_PROJECT_TITLE) ?: "Vídeo"
         NotificationHelper.createNotificationChannel(this)
         val notification = NotificationHelper.buildProcessingNotification(this, projectTitle)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             ServiceCompat.startForeground(
                 this,
                 NotificationHelper.NOTIFICATION_ID,

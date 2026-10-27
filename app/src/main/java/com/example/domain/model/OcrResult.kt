@@ -26,9 +26,9 @@ data class RawFrameDetection(
 )
 
 data class AppSettings(
-    val defaultFps: Int = 3,
+    val defaultFps: Int = 2,
     val minSpeechDurationMs: Long = 300L,
-    val textSimilarityThreshold: Float = 0.85f,
+    val textSimilarityThreshold: Float = 0.80f,
     val maxCharsPerLine: Int = 42,
     val coverOriginalOverlay: Boolean = true,
     val overlayColorHex: String = "#E6000000",

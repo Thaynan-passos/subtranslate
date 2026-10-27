@@ -310,7 +310,7 @@ fun ProjectConfigScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Valores mais altos aumentam precisão de tempo; 3 fps é o equilíbrio ideal.",
+                        text = "Valores entre 1 e 2 fps aceleram bastante o processamento mantendo excelente detecção de legendas.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

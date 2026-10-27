@@ -11,28 +11,20 @@ import kotlin.math.sqrt
 object ImagePreprocessor {
 
     /**
-     * Converts bitmap to grayscale with enhanced contrast for OCR.
+     * Prepares bitmap for ML Kit OCR.
+     * ML Kit's modern neural recognizer performs best on clean color images.
+     * Upscales low-resolution subtitle crops (height < 160px) so character strokes
+     * are well-defined for the neural network.
      */
     fun enhanceForOcr(src: Bitmap): Bitmap {
-        val width = src.width
-        val height = src.height
-        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(output)
-
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        // High contrast grayscale color matrix
-        val matrix = ColorMatrix(
-            floatArrayOf(
-                0.33f * 1.5f, 0.59f * 1.5f, 0.11f * 1.5f, 0f, -30f,
-                0.33f * 1.5f, 0.59f * 1.5f, 0.11f * 1.5f, 0f, -30f,
-                0.33f * 1.5f, 0.59f * 1.5f, 0.11f * 1.5f, 0f, -30f,
-                0f,           0f,           0f,           1f, 0f
-            )
-        )
-        paint.colorFilter = ColorMatrixColorFilter(matrix)
-        canvas.drawBitmap(src, 0f, 0f, paint)
-
-        return output
+        val minTargetHeight = 160
+        if (src.height in 1 until minTargetHeight) {
+            val scale = minTargetHeight.toFloat() / src.height.toFloat()
+            val targetW = (src.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (src.height * scale).toInt().coerceAtLeast(1)
+            return Bitmap.createScaledBitmap(src, targetW, targetH, true)
+        }
+        return src
     }
 
     /**

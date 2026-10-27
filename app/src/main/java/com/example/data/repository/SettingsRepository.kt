@@ -34,7 +34,7 @@ class SettingsRepository(private val context: Context) {
         val glossaryMap = parseGlossary(glossaryString)
 
         AppSettings(
-            defaultFps = prefs[Keys.DEFAULT_FPS] ?: 3,
+            defaultFps = prefs[Keys.DEFAULT_FPS] ?: 2,
             minSpeechDurationMs = (prefs[Keys.MIN_SPEECH_DURATION] ?: 300).toLong(),
             textSimilarityThreshold = prefs[Keys.SIMILARITY_THRESHOLD] ?: 0.85f,
             maxCharsPerLine = prefs[Keys.MAX_CHARS_PER_LINE] ?: 42,

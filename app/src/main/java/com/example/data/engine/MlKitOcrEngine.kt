@@ -129,7 +129,7 @@ class MlKitOcrEngine : OcrEngine {
             .replace("[ \t]+".toRegex(), " ")
             .lines()
             .map { it.trim() }
-            .filter { it.isNotBlank() }
+            .filter { line -> line.isNotBlank() && line.any { ch -> ch.isLetterOrDigit() } }
             .joinToString("\n")
     }
 

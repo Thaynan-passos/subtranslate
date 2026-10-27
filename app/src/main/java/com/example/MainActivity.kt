@@ -20,6 +20,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,7 +55,12 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     // Navigation backStack saved across configuration changes and process death
-                    val backStack = rememberSaveable { mutableStateListOf("projects") }
+                    val backStack = rememberSaveable(
+                        saver = listSaver<SnapshotStateList<String>, String>(
+                            save = { it.toList() },
+                            restore = { it.toMutableStateList() }
+                        )
+                    ) { mutableStateListOf("projects") }
                     val currentRoute = backStack.lastOrNull() ?: "projects"
 
                     fun navigateTo(route: String) {

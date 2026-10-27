@@ -17,7 +17,7 @@ data class ProjectEntity(
     val videoHeight: Int = 1080,
     val sourceLanguage: String = "en",
     val targetLanguage: String = "pt",
-    val samplingFps: Int = 3,
+    val samplingFps: Int = 2,
     val outputMode: String = OutputMode.SRT_ONLY.name,
     val status: String = ProjectStatus.IDLE.name,
     val progress: Float = 0f,

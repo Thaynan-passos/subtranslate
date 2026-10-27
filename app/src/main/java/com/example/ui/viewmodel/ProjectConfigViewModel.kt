@@ -32,7 +32,7 @@ data class ProjectConfigUiState(
     val roi: RegionOfInterest = RegionOfInterest(left = 0.05f, top = 0.72f, right = 0.95f, bottom = 0.95f),
     val sourceLang: String = "en",
     val targetLang: String = "pt",
-    val samplingFps: Int = 3,
+    val samplingFps: Int = 2,
     val outputMode: OutputMode = OutputMode.SRT_ONLY,
     val isAutoDetectingRoi: Boolean = false,
     val isCreatingProject: Boolean = false,
