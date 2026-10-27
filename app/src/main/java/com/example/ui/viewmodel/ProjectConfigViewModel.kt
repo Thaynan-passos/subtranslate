@@ -19,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,8 +50,11 @@ class ProjectConfigViewModel(
     val uiState: StateFlow<ProjectConfigUiState> = _uiState.asStateFlow()
     private var videoLoadJob: Job? = null
     private var roiDetectionJob: Job? = null
+    @Volatile
+    private var videoLoadGeneration = 0L
 
     fun resetState() {
+        videoLoadGeneration++
         videoLoadJob?.cancel()
         roiDetectionJob?.cancel()
         _uiState.value.previewFrame?.takeUnless { it.isRecycled }?.recycle()
@@ -58,6 +62,7 @@ class ProjectConfigViewModel(
     }
 
     fun setVideo(uri: Uri, name: String) {
+        val requestGeneration = ++videoLoadGeneration
         videoLoadJob?.cancel()
         roiDetectionJob?.cancel()
         _uiState.value.previewFrame?.takeUnless { it.isRecycled }?.recycle()
@@ -76,13 +81,19 @@ class ProjectConfigViewModel(
 
                 val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                 if (duration <= 0L) {
-                    _uiState.value = _uiState.value.copy(
-                        videoUri = null,
-                        videoName = "",
-                        previewFrame = null,
-                        durationMs = 0L,
-                        error = "O vídeo selecionado possui duração inválida (0s). Escolha outro arquivo de vídeo."
-                    )
+                    _uiState.update { state ->
+                        if (requestGeneration == videoLoadGeneration) {
+                            state.copy(
+                                videoUri = null,
+                                videoName = "",
+                                previewFrame = null,
+                                durationMs = 0L,
+                                error = "O vídeo selecionado possui duração inválida (0s). Escolha outro arquivo de vídeo."
+                            )
+                        } else {
+                            state
+                        }
+                    }
                     return@launch
                 }
 
@@ -98,29 +109,48 @@ class ProjectConfigViewModel(
                 val frame = retriever.getFrameAtTime(sampleTime, MediaMetadataRetriever.OPTION_CLOSEST)
                     ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
 
-                if (!isActive) {
+                if (!isActive || requestGeneration != videoLoadGeneration) {
                     frame?.takeUnless { it.isRecycled }?.recycle()
                     return@launch
                 }
-                _uiState.value = _uiState.value.copy(
-                    videoUri = uri,
-                    videoName = name,
-                    durationMs = duration,
-                    videoWidth = width,
-                    videoHeight = height,
-                    previewFrame = frame,
-                    error = null
-                )
+                var applied = false
+                _uiState.update { state ->
+                    if (requestGeneration == videoLoadGeneration) {
+                        applied = true
+                        state.copy(
+                            videoUri = uri,
+                            videoName = name,
+                            durationMs = duration,
+                            videoWidth = width,
+                            videoHeight = height,
+                            previewFrame = frame,
+                            error = null
+                        )
+                    } else {
+                        state
+                    }
+                }
+                if (!applied) {
+                    frame?.takeUnless { it.isRecycled }?.recycle()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    videoUri = null,
-                    videoName = "",
-                    durationMs = 0L,
-                    previewFrame = null,
-                    error = "Não foi possível carregar o vídeo selecionado: ${e.message}"
-                )
+                if (isActive) {
+                    _uiState.update { state ->
+                        if (requestGeneration == videoLoadGeneration) {
+                            state.copy(
+                                videoUri = null,
+                                videoName = "",
+                                durationMs = 0L,
+                                previewFrame = null,
+                                error = "Não foi possível carregar o vídeo selecionado: ${e.message}"
+                            )
+                        } else {
+                            state
+                        }
+                    }
+                }
             } finally {
                 try {
                     retriever.release()

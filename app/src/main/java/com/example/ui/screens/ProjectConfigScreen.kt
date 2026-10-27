@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -105,16 +106,21 @@ fun ProjectConfigScreen(
                     uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-            } catch (_: Exception) {}
-
-            var fileName = "video_${System.currentTimeMillis()}"
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && nameIndex >= 0) {
-                    fileName = cursor.getString(nameIndex)
+                var fileName = "video_${System.currentTimeMillis()}"
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0) {
+                        fileName = cursor.getString(nameIndex)
+                    }
                 }
+                onVideoSelected(uri, fileName)
+            } catch (_: SecurityException) {
+                Toast.makeText(
+                    context,
+                    "Não foi possível manter o acesso ao vídeo. Escolha um arquivo de outro provedor.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
-            onVideoSelected(uri, fileName)
         }
     }
 

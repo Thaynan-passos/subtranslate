@@ -187,7 +187,7 @@ class SubtitleExtractionPipeline(
                 var lastConfidence = 0f
 
                 var currentTimeMs = 0L
-                val totalSteps = (durationMs / intervalMs).coerceAtLeast(1L)
+                val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
                 var stepIndex = 0L
 
                 updateState(project.id) {
@@ -293,7 +293,8 @@ class SubtitleExtractionPipeline(
                     stepIndex++
                     currentTimeMs += intervalMs
 
-                    val frameProgress = 0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat()))
+                    val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
+                        .coerceIn(0.1f, 0.6f)
                     if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
                         updateState(project.id) {
                             it.copy(
@@ -303,7 +304,9 @@ class SubtitleExtractionPipeline(
                                 failedOcrFramesCount = failedOcrFrames
                             )
                         }
-                        val percent = ((currentTimeMs * 100) / durationMs).toInt()
+                        val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
+                            .toInt()
+                            .coerceIn(0, 100)
                         projectRepository.updateProgress(
                             project.id,
                             ProjectStatus.PROCESSING.name,
@@ -338,6 +341,11 @@ class SubtitleExtractionPipeline(
                     videoDurationMs = durationMs
                 )
                 val groupedLines = grouper.groupDetections(project.id, rawDetections)
+                if (groupedLines.isEmpty()) {
+                    throw IllegalStateException(
+                        "Nenhuma legenda foi detectada. Verifique a região de interesse e as configurações de amostragem e tente novamente."
+                    )
+                }
 
                 // Clear previous lines before inserting fresh batch (Item 1: Avoid duplication!)
                 subtitleRepository.clearLines(project.id)
