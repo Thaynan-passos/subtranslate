@@ -30,14 +30,14 @@ jobs:
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Run unit tests and build debug APK
         run: ./gradlew testDebugUnitTest assembleDebug
 
       - name: Upload unit test reports
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: unit-test-reports
           path: app/build/reports/tests/testDebugUnitTest/
