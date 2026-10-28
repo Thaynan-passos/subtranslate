@@ -33,7 +33,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Run unit tests and build debug APK
-        run: bash ./gradlew testDebugUnitTest assembleDebug
+        run: |
+          chmod +x gradlew
+          ./gradlew testDebugUnitTest assembleDebug
 
       - name: Upload unit test reports
         if: always()
