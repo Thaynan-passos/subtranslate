@@ -1,10 +1,6 @@
 package com.example.domain.util
 
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
-import android.graphics.Paint
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -18,13 +14,102 @@ object ImagePreprocessor {
      */
     fun enhanceForOcr(src: Bitmap): Bitmap {
         val minTargetHeight = 160
-        if (src.height in 1 until minTargetHeight) {
-            val scale = minTargetHeight.toFloat() / src.height.toFloat()
+        val maxDimension = 1920
+        val upscale = if (src.height in 1 until minTargetHeight) {
+            minTargetHeight.toFloat() / src.height.toFloat()
+        } else {
+            1f
+        }
+        val maxScale = maxDimension.toFloat() / maxOf(src.width, src.height).coerceAtLeast(1)
+        val scale = minOf(upscale, maxScale)
+        if (scale != 1f) {
             val targetW = (src.width * scale).toInt().coerceAtLeast(1)
             val targetH = (src.height * scale).toInt().coerceAtLeast(1)
             return Bitmap.createScaledBitmap(src, targetW, targetH, true)
         }
         return src
+    }
+
+    /** Creates a grayscale contrast-stretched image for difficult foreground/background colors. */
+    fun createHighContrastVariant(src: Bitmap): Bitmap {
+        val pixels = IntArray(src.width * src.height)
+        src.getPixels(pixels, 0, src.width, 0, 0, src.width, src.height)
+
+        var minGray = 255
+        var maxGray = 0
+        val grays = IntArray(pixels.size)
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            val gray = ((pixel shr 16 and 0xFF) * 0.299f +
+                    (pixel shr 8 and 0xFF) * 0.587f +
+                    (pixel and 0xFF) * 0.114f).toInt()
+            grays[i] = gray
+            minGray = minOf(minGray, gray)
+            maxGray = maxOf(maxGray, gray)
+        }
+
+        val range = (maxGray - minGray).coerceAtLeast(1)
+        val outputPixels = IntArray(pixels.size)
+        for (i in grays.indices) {
+            val adjusted = ((grays[i] - minGray) * 255 / range).coerceIn(0, 255)
+            outputPixels[i] = (0xFF shl 24) or (adjusted shl 16) or (adjusted shl 8) or adjusted
+        }
+
+        return Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888).apply {
+            setPixels(outputPixels, 0, src.width, 0, 0, src.width, src.height)
+        }
+    }
+
+    /** Creates a black-and-white OCR alternative using Otsu's global threshold. */
+    fun createOtsuVariant(src: Bitmap): Bitmap {
+        val pixels = IntArray(src.width * src.height)
+        src.getPixels(pixels, 0, src.width, 0, 0, src.width, src.height)
+
+        val histogram = IntArray(256)
+        val grays = IntArray(pixels.size)
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            val gray = ((pixel shr 16 and 0xFF) * 0.299f +
+                    (pixel shr 8 and 0xFF) * 0.587f +
+                    (pixel and 0xFF) * 0.114f).toInt()
+            grays[i] = gray
+            histogram[gray]++
+        }
+
+        val total = grays.size.toDouble()
+        var totalWeighted = 0.0
+        for (value in histogram.indices) totalWeighted += value.toDouble() * histogram[value]
+
+        var backgroundWeight = 0.0
+        var backgroundWeighted = 0.0
+        var threshold = 127
+        var maxVariance = -1.0
+        for (value in histogram.indices) {
+            backgroundWeight += histogram[value]
+            if (backgroundWeight == 0.0) continue
+            val foregroundWeight = total - backgroundWeight
+            if (foregroundWeight == 0.0) break
+
+            backgroundWeighted += value.toDouble() * histogram[value]
+            val backgroundMean = backgroundWeighted / backgroundWeight
+            val foregroundMean = (totalWeighted - backgroundWeighted) / foregroundWeight
+            val variance = backgroundWeight * foregroundWeight *
+                    (backgroundMean - foregroundMean) * (backgroundMean - foregroundMean)
+            if (variance > maxVariance) {
+                maxVariance = variance
+                threshold = value
+            }
+        }
+
+        val outputPixels = IntArray(grays.size)
+        for (i in grays.indices) {
+            val value = if (grays[i] > threshold) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+            outputPixels[i] = value
+        }
+
+        return Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888).apply {
+            setPixels(outputPixels, 0, src.width, 0, 0, src.width, src.height)
+        }
     }
 
     /**
@@ -47,6 +132,22 @@ object ImagePreprocessor {
             grays[i] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
         }
         return grays
+    }
+
+    fun createThumbnailRgb(src: Bitmap, width: Int = 64, height: Int = 16): IntArray {
+        val scaled = Bitmap.createScaledBitmap(src, width, height, true)
+        val pixels = IntArray(width * height)
+        scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+        if (scaled != src) scaled.recycle()
+
+        val channels = IntArray(pixels.size * 3)
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            channels[i * 3] = pixel shr 16 and 0xFF
+            channels[i * 3 + 1] = pixel shr 8 and 0xFF
+            channels[i * 3 + 2] = pixel and 0xFF
+        }
+        return channels
     }
 
     /**
@@ -88,7 +189,4 @@ object ImagePreprocessor {
         return computeMae(thumb1, thumb2) <= maeThreshold
     }
 
-    /**
-     * Binarizes bitmap using Otsu's thresholding.
-     */
 }

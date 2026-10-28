@@ -21,6 +21,7 @@ import com.example.domain.model.ProjectStatus
 import com.example.domain.model.RawFrameDetection
 import com.example.domain.model.RegionOfInterest
 import com.example.domain.model.SubtitleLine
+import com.example.domain.util.ImagePreprocessor
 import com.example.domain.util.Levenshtein
 import com.example.domain.util.SubtitleExportType
 import com.example.domain.util.SubtitleFormatter
@@ -161,6 +162,60 @@ class SubtitleDomainUnitTest {
             )
         )
         assertEquals(2, changedCaptions.size)
+    }
+
+    @Test
+    fun imagePreprocessorCreatesHighContrastAndBinaryAlternatives() {
+        val source = Bitmap.createBitmap(4, 1, Bitmap.Config.ARGB_8888)
+        source.setPixels(
+            intArrayOf(0xFF646464.toInt(), 0xFF707070.toInt(), 0xFFB0B0B0.toInt(), 0xFFC0C0C0.toInt()),
+            0,
+            4,
+            0,
+            0,
+            4,
+            1
+        )
+
+        val contrast = ImagePreprocessor.createHighContrastVariant(source)
+        val binary = ImagePreprocessor.createOtsuVariant(source)
+        try {
+            val contrastPixels = IntArray(4)
+            val binaryPixels = IntArray(4)
+            contrast.getPixels(contrastPixels, 0, 4, 0, 0, 4, 1)
+            binary.getPixels(binaryPixels, 0, 4, 0, 0, 4, 1)
+
+            assertTrue(contrastPixels.first() < contrastPixels.last())
+            assertTrue(binaryPixels.toSet().size > 1)
+            assertEquals(source.width, contrast.width)
+            assertEquals(source.height, binary.height)
+        } finally {
+            source.recycle()
+            contrast.recycle()
+            binary.recycle()
+        }
+    }
+
+    @Test
+    fun frameSimilarityIncludesColorChangesWithSimilarLuminance() {
+        val red = Bitmap.createBitmap(2, 1, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(0xFFFF0000.toInt())
+        }
+        val green = Bitmap.createBitmap(2, 1, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(0xFF008200.toInt())
+        }
+        try {
+            val redGray = ImagePreprocessor.createThumbnailGrayscale(red, 2, 1)
+            val greenGray = ImagePreprocessor.createThumbnailGrayscale(green, 2, 1)
+            val redRgb = ImagePreprocessor.createThumbnailRgb(red, 2, 1)
+            val greenRgb = ImagePreprocessor.createThumbnailRgb(green, 2, 1)
+
+            assertTrue(ImagePreprocessor.isFrameSimilar(redGray, greenGray, maeThreshold = 2f))
+            assertFalse(ImagePreprocessor.isFrameSimilar(redRgb, greenRgb, maeThreshold = 2f))
+        } finally {
+            red.recycle()
+            green.recycle()
+        }
     }
 
     @Test
@@ -371,8 +426,8 @@ class SubtitleDomainUnitTest {
             sampleCount = 1
         )
         assertTrue(roiHigh.top < roiHigh.bottom)
-        assertTrue(roiHigh.top in 0.1f..0.85f)
-        assertTrue(roiHigh.bottom in 0.1f..0.98f)
+        assertTrue(roiHigh.top in 0.01f..0.90f)
+        assertTrue(roiHigh.bottom in 0.01f..0.99f)
 
         // Extreme negative values
         val roiLow = ProjectConfigViewModel.calculateAutoDetectedRoi(
@@ -381,7 +436,19 @@ class SubtitleDomainUnitTest {
             sampleCount = 1
         )
         assertTrue(roiLow.top < roiLow.bottom)
-        assertTrue(roiLow.top >= 0.1f)
+        assertTrue(roiLow.top >= 0.01f)
+
+        val upperLeftText = ProjectConfigViewModel.calculateAutoDetectedRoi(
+            detectedTopSum = 0.14f,
+            detectedBottomSum = 0.22f,
+            sampleCount = 1,
+            detectedLeftSum = 0.18f,
+            detectedRightSum = 0.42f
+        )
+        assertTrue(upperLeftText.left < 0.18f)
+        assertTrue(upperLeftText.right > 0.42f)
+        assertTrue(upperLeftText.top < 0.14f)
+        assertTrue(upperLeftText.bottom > 0.22f)
 
         // Empty sample count returns default
         val roiDefault = com.example.ui.viewmodel.ProjectConfigViewModel.calculateAutoDetectedRoi(

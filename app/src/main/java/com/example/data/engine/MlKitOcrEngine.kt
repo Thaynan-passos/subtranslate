@@ -5,6 +5,7 @@ import com.example.domain.engine.OcrEngine
 import com.example.domain.model.BoundingBox
 import com.example.domain.model.OcrResult
 import com.example.domain.model.OcrTextBlock
+import com.example.domain.util.ImagePreprocessor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -43,23 +44,7 @@ class MlKitOcrEngine : OcrEngine {
         var lastException: Exception? = null
         for (attempt in 1..3) {
             try {
-                return suspendCancellableCoroutine { continuation ->
-                    try {
-                        val client = getRecognizer(languageCode)
-                        val inputImage = InputImage.fromBitmap(bitmap, 0)
-
-                        client.process(inputImage)
-                            .addOnSuccessListener { visionText ->
-                                val result = processVisionText(visionText)
-                                continuation.resume(result)
-                            }
-                            .addOnFailureListener { ex ->
-                                continuation.resumeWithException(ex)
-                            }
-                    } catch (e: Exception) {
-                        continuation.resumeWithException(e)
-                    }
-                }
+                return recognizeWithVariants(bitmap, languageCode)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 lastException = e
@@ -71,14 +56,99 @@ class MlKitOcrEngine : OcrEngine {
         throw lastException ?: IllegalStateException("Falha no reconhecimento de texto OCR após 3 tentativas.")
     }
 
-    private fun processVisionText(visionText: Text): OcrResult {
+    private suspend fun recognizeWithVariants(bitmap: Bitmap, languageCode: String): OcrResult {
+        val enhanced = ImagePreprocessor.enhanceForOcr(bitmap)
+        var contrast: Bitmap? = null
+        var binary: Bitmap? = null
+        try {
+            val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
+            if (!needsAlternateImage(originalResult)) return originalResult
+
+            contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
+            val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
+            var bestResult = chooseBetterResult(originalResult, contrastResult)
+
+            if (bestResult.fullText.isBlank() ||
+                bestResult.fullText.count { it.isLetterOrDigit() } <= 2
+            ) {
+                binary = ImagePreprocessor.createOtsuVariant(enhanced)
+                val binaryResult = recognizeOnce(binary, languageCode, bitmap.width, bitmap.height)
+                bestResult = chooseBetterResult(bestResult, binaryResult)
+            }
+            return bestResult
+        } finally {
+            if (binary != null && !binary.isRecycled) binary.recycle()
+            if (contrast != null && !contrast.isRecycled) contrast.recycle()
+            if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
+        }
+    }
+
+    private suspend fun recognizeOnce(
+        bitmap: Bitmap,
+        languageCode: String,
+        coordinateWidth: Int,
+        coordinateHeight: Int
+    ): OcrResult {
+        return suspendCancellableCoroutine { continuation ->
+            try {
+                val client = getRecognizer(languageCode)
+                val inputImage = InputImage.fromBitmap(bitmap, 0)
+
+                client.process(inputImage)
+                    .addOnSuccessListener { visionText ->
+                        val result = processVisionText(visionText, bitmap.width, bitmap.height, coordinateWidth, coordinateHeight)
+                        if (continuation.isActive) continuation.resume(result)
+                    }
+                    .addOnFailureListener { ex ->
+                        if (continuation.isActive) continuation.resumeWithException(ex)
+                    }
+            } catch (e: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+        }
+    }
+
+    private fun needsAlternateImage(result: OcrResult): Boolean {
+        val usefulCharacters = result.fullText.count { it.isLetterOrDigit() }
+        return result.fullText.isBlank() || usefulCharacters <= 3 || result.confidence < 0.70f
+    }
+
+    private fun chooseBetterResult(first: OcrResult, second: OcrResult): OcrResult {
+        val firstCharacters = first.fullText.count { it.isLetterOrDigit() }
+        val secondCharacters = second.fullText.count { it.isLetterOrDigit() }
+        if (second.fullText.isBlank()) return first
+        if (first.fullText.isBlank()) return second
+
+        val meaningfulRecovery = if (firstCharacters <= 3) {
+            secondCharacters > firstCharacters
+        } else {
+            secondCharacters >= firstCharacters + maxOf(3, firstCharacters / 3)
+        }
+        if (meaningfulRecovery && second.confidence >= first.confidence - 0.10f) return second
+
+        val comparableLength = secondCharacters >= (firstCharacters * 0.8f).toInt()
+        return if (second.confidence > first.confidence + 0.05f && comparableLength) second else first
+    }
+
+    private fun processVisionText(
+        visionText: Text,
+        imageWidth: Int,
+        imageHeight: Int,
+        coordinateWidth: Int,
+        coordinateHeight: Int
+    ): OcrResult {
         val blocks = mutableListOf<OcrTextBlock>()
         val rawLines = mutableListOf<String>()
         val allConfidences = mutableListOf<Float>()
 
         for (block in visionText.textBlocks) {
             val box = block.boundingBox?.let {
-                BoundingBox(it.left, it.top, it.right, it.bottom)
+                BoundingBox(
+                    left = (it.left.toFloat() * coordinateWidth / imageWidth).toInt(),
+                    top = (it.top.toFloat() * coordinateHeight / imageHeight).toInt(),
+                    right = (it.right.toFloat() * coordinateWidth / imageWidth).toInt(),
+                    bottom = (it.bottom.toFloat() * coordinateHeight / imageHeight).toInt()
+                )
             }
 
             // Calculate real confidence from lines or elements

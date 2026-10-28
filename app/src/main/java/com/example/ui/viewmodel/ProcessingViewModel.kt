@@ -40,10 +40,12 @@ class ProcessingViewModel(
 
     fun pause() {
         pipeline.pause(projectId)
+        SubtitleExtractionService.pause(context, projectId)
     }
 
     fun resume() {
         pipeline.resume(projectId)
+        SubtitleExtractionService.resume(context, projectId)
     }
 
     suspend fun cancel() {

@@ -316,7 +316,7 @@ fun ProjectConfigScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Valores entre 1 e 2 fps aceleram bastante o processamento mantendo excelente detecção de legendas.",
+                        text = "Mais FPS ajuda a capturar textos que aparecem por pouco tempo, mas aumenta o processamento. Se o OCR não encontrar texto na região selecionada, o app também verifica o quadro inteiro e tenta versões com contraste e preto e branco.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

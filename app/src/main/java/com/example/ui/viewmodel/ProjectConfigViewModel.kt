@@ -46,6 +46,21 @@ class ProjectConfigViewModel(
     private val ocrEngine: OcrEngine
 ) : ViewModel() {
 
+    private data class RoiCandidate(
+        val left: Float,
+        val top: Float,
+        val right: Float,
+        val bottom: Float
+    ) {
+        val centerX: Float get() = (left + right) / 2f
+        val centerY: Float get() = (top + bottom) / 2f
+    }
+
+    private data class RoiCluster(
+        val candidates: MutableList<RoiCandidate> = mutableListOf(),
+        val sampleIndices: MutableSet<Int> = mutableSetOf()
+    )
+
     private val _uiState = MutableStateFlow(ProjectConfigUiState())
     val uiState: StateFlow<ProjectConfigUiState> = _uiState.asStateFlow()
     private var videoLoadJob: Job? = null
@@ -178,12 +193,10 @@ class ProjectConfigViewModel(
             try {
                 retriever.setDataSource(context, uri)
 
-                var detectedTopSum = 0f
-                var detectedBottomSum = 0f
-                var sampleCount = 0
+                val roiClusters = mutableListOf<RoiCluster>()
 
-                val samplePoints = listOf(0.15f, 0.30f, 0.45f, 0.60f, 0.75f)
-                for (ratio in samplePoints) {
+                val samplePoints = listOf(0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f, 0.90f)
+                for ((sampleIndex, ratio) in samplePoints.withIndex()) {
                     val timeUs = (duration * ratio.toDouble() * 1000.0).toLong()
                     val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                     if (frame != null) {
@@ -196,18 +209,32 @@ class ProjectConfigViewModel(
                                 null
                             }
                             if (ocrRes == null) continue
-                            val candidateBoxes = ocrRes.blocks.mapNotNull { it.boundingBox }
-
-                            if (candidateBoxes.isNotEmpty()) {
-                                val frameH = frame.height.toFloat()
-                                val minTop = candidateBoxes.minOf { it.top } / frameH
-                                val maxBottom = candidateBoxes.maxOf { it.bottom } / frameH
-
-                                if (maxBottom > minTop && minTop > 0.40f) {
-                                    detectedTopSum += minTop
-                                    detectedBottomSum += maxBottom
-                                    sampleCount++
+                            val frameW = frame.width.toFloat()
+                            val frameH = frame.height.toFloat()
+                            val candidates = ocrRes.blocks.mapNotNull { block ->
+                                val box = block.boundingBox ?: return@mapNotNull null
+                                val usefulCharacters = block.text.count { it.isLetterOrDigit() }
+                                val boxHeight = (box.bottom - box.top).toFloat() / frameH
+                                if (usefulCharacters < 2 || boxHeight !in 0.004f..0.22f) {
+                                    return@mapNotNull null
                                 }
+                                RoiCandidate(
+                                    left = (box.left / frameW).coerceIn(0f, 1f),
+                                    top = (box.top / frameH).coerceIn(0f, 1f),
+                                    right = (box.right / frameW).coerceIn(0f, 1f),
+                                    bottom = (box.bottom / frameH).coerceIn(0f, 1f)
+                                ).takeIf { it.right > it.left && it.bottom > it.top }
+                            }
+
+                            for (candidate in candidates) {
+                                val cluster = roiClusters.firstOrNull { existing ->
+                                    val centerX = existing.candidates.map { it.centerX }.average().toFloat()
+                                    val centerY = existing.candidates.map { it.centerY }.average().toFloat()
+                                    kotlin.math.abs(centerX - candidate.centerX) <= 0.40f &&
+                                            kotlin.math.abs(centerY - candidate.centerY) <= 0.16f
+                                } ?: RoiCluster().also(roiClusters::add)
+                                cluster.candidates.add(candidate)
+                                cluster.sampleIndices.add(sampleIndex)
                             }
                         } finally {
                             if (!frame.isRecycled) frame.recycle()
@@ -216,9 +243,20 @@ class ProjectConfigViewModel(
                 }
 
                 withContext(Dispatchers.Main) {
-                    _uiState.value = if (sampleCount > 0) {
+                    val selectedCluster = roiClusters.maxWithOrNull(
+                        compareBy<RoiCluster> { it.sampleIndices.size }
+                            .thenBy { cluster -> cluster.candidates.map { it.centerY }.average() }
+                    )
+                    _uiState.value = if (selectedCluster != null) {
+                        val candidates = selectedCluster.candidates
                         _uiState.value.copy(
-                            roi = calculateAutoDetectedRoi(detectedTopSum, detectedBottomSum, sampleCount),
+                            roi = calculateAutoDetectedRoi(
+                                detectedTopSum = candidates.minOf { it.top },
+                                detectedBottomSum = candidates.maxOf { it.bottom },
+                                sampleCount = 1,
+                                detectedLeftSum = candidates.minOf { it.left },
+                                detectedRightSum = candidates.maxOf { it.right }
+                            ),
                             isAutoDetectingRoi = false,
                             error = null
                         )
@@ -324,18 +362,24 @@ class ProjectConfigViewModel(
         fun calculateAutoDetectedRoi(
             detectedTopSum: Float,
             detectedBottomSum: Float,
-            sampleCount: Int
+            sampleCount: Int,
+            detectedLeftSum: Float = 0.05f * sampleCount,
+            detectedRightSum: Float = 0.95f * sampleCount
         ): RegionOfInterest {
             if (sampleCount <= 0) {
                 return RegionOfInterest(left = 0.05f, top = 0.70f, right = 0.95f, bottom = 0.95f)
             }
+            val avgLeft = (detectedLeftSum / sampleCount) - 0.04f
+            val avgRight = (detectedRightSum / sampleCount) + 0.04f
             val avgTop = (detectedTopSum / sampleCount) - 0.04f
             val avgBottom = (detectedBottomSum / sampleCount) + 0.04f
-            val top = avgTop.coerceIn(0.1f, 0.85f)
-            val bottom = avgBottom.coerceIn(top + 0.08f, 0.98f)
+            val left = avgLeft.coerceIn(0.01f, 0.90f)
+            val right = avgRight.coerceIn(left + 0.08f, 0.99f)
+            val top = avgTop.coerceIn(0.01f, 0.90f)
+            val bottom = avgBottom.coerceIn(top + 0.08f, 0.99f)
 
-            return if (bottom > top + 0.05f) {
-                RegionOfInterest(left = 0.05f, top = top, right = 0.95f, bottom = bottom)
+            return if (bottom > top + 0.05f && right > left + 0.05f) {
+                RegionOfInterest(left = left, top = top, right = right, bottom = bottom)
             } else {
                 RegionOfInterest(left = 0.05f, top = 0.70f, right = 0.95f, bottom = 0.95f)
             }

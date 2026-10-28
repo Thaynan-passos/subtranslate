@@ -185,6 +185,7 @@ class SubtitleExtractionPipeline(
                 var lastThumb: IntArray? = null
                 var lastOcrText = ""
                 var lastConfidence = 0f
+                var lastOcrTimeMs = Long.MIN_VALUE
 
                 var currentTimeMs = 0L
                 val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
@@ -227,21 +228,32 @@ class SubtitleExtractionPipeline(
 
                             val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
                             croppedBitmap = crop
-                            val currentThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
-                            val stdDev = ImagePreprocessor.computeStandardDeviation(currentThumb)
+                            val grayThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
+                            val currentThumb = ImagePreprocessor.createThumbnailRgb(crop, 96, 24)
+                            val stdDev = ImagePreprocessor.computeStandardDeviation(grayThumb)
 
-                            val detectedText: String
-                            val detectedConfidence: Float
+                            var detectedText: String
+                            var detectedConfidence: Float
 
                             if (stdDev < 6.0f) {
-                                detectedText = ""
-                                detectedConfidence = 0f
+                                val fullFrameOcr = try {
+                                    ocrEngine.recognizeText(rawFrame, project.sourceLanguage)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    failedOcrFrames++
+                                    null
+                                }
+                                detectedText = fullFrameOcr?.fullText.orEmpty()
+                                detectedConfidence = fullFrameOcr?.confidence ?: 0f
                                 lastThumb = currentThumb
-                                lastOcrText = ""
-                                lastConfidence = 0f
+                                lastOcrText = detectedText
+                                lastConfidence = detectedConfidence
+                                lastOcrTimeMs = currentTimeMs
                             } else {
                                 val isSimilarToLast = lastThumb != null &&
-                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 6.0f)
+                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f) &&
+                                        currentTimeMs - lastOcrTimeMs < 1000L
 
                                 if (isSimilarToLast) {
                                     detectedText = lastOcrText
@@ -254,19 +266,28 @@ class SubtitleExtractionPipeline(
                                     } catch (e: CancellationException) {
                                         throw e
                                     } catch (_: Exception) {
-                                        failedOcrFrames++
                                         null
                                     }
-                                    if (ocrRes == null) {
-                                        detectedText = ""
-                                        detectedConfidence = 0f
-                                    } else {
-                                        detectedText = ocrRes.fullText
-                                        detectedConfidence = ocrRes.confidence
-                                        lastThumb = currentThumb
-                                        lastOcrText = detectedText
-                                        lastConfidence = detectedConfidence
+                                    detectedText = ocrRes?.fullText.orEmpty()
+                                    detectedConfidence = ocrRes?.confidence ?: 0f
+
+                                    if (detectedText.isBlank()) {
+                                        val fullFrameOcr = try {
+                                            ocrEngine.recognizeText(rawFrame, project.sourceLanguage)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (_: Exception) {
+                                            if (ocrRes == null) failedOcrFrames++
+                                            null
+                                        }
+                                        detectedText = fullFrameOcr?.fullText.orEmpty()
+                                        detectedConfidence = fullFrameOcr?.confidence ?: 0f
                                     }
+
+                                    lastThumb = currentThumb
+                                    lastOcrText = detectedText
+                                    lastConfidence = detectedConfidence
+                                    lastOcrTimeMs = currentTimeMs
                                 }
                             }
 
@@ -510,8 +531,8 @@ class SubtitleExtractionPipeline(
         }
         val width = videoWidth.coerceAtLeast(1)
         val height = videoHeight.coerceAtLeast(1)
-        // Scale down to max 1280px (720p) for 2x-3x faster decoding without any loss of subtitle clarity for OCR
-        val maxDimension = 1280f
+        // Keep enough detail for small text in high-resolution videos without decoding full 4K frames.
+        val maxDimension = 1920f
         val scale = minOf(1f, maxDimension / maxOf(width, height))
         val targetWidth = (width * scale).toInt().coerceAtLeast(1)
         val targetHeight = (height * scale).toInt().coerceAtLeast(1)
