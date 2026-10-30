@@ -52,8 +52,12 @@ class TemporalSpeechGrouper(
         val initialLines = mutableListOf<SubtitleLine>()
         var index = 1
         for (cluster in clusters) {
+            val isHighConfidenceSingleFrame = cluster.size == 1 &&
+                    sampleIntervalMs >= minDurationMs &&
+                    cluster.first().confidence >= 0.75f &&
+                    cluster.first().text.count { it.isLetterOrDigit() } >= 2
             // Discard clusters that don't meet minimum consecutive frames
-            if (cluster.size < minConsecutiveFrames) {
+            if (cluster.size < minConsecutiveFrames && !isHighConfidenceSingleFrame) {
                 continue
             }
 
@@ -145,10 +149,12 @@ class TemporalSpeechGrouper(
                 } else {
                     current.originalText
                 }
+                val mergedConfidence = (current.confidence + next.confidence) / 2f
                 current = current.copy(
                     endTimeMs = next.endTimeMs,
                     originalText = chosenText,
-                    confidence = (current.confidence + next.confidence) / 2f
+                    confidence = mergedConfidence,
+                    isFlagged = mergedConfidence < 0.70f
                 )
             } else {
                 merged.add(current)

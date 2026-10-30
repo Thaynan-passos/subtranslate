@@ -32,13 +32,12 @@ class SubtitleExtractionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        lastStartId = startId
         val action = intent?.action
         if (action == ACTION_STOP) {
             processingJob?.cancel(CancellationException("Cancelado pelo usuário"))
             if (processingJob?.isCompleted != false) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(lastStartId)
+                stopSelf()
             }
             return START_NOT_STICKY
         }
@@ -57,6 +56,23 @@ class SubtitleExtractionService : Service() {
 
         val projectId = intent?.getLongExtra(EXTRA_PROJECT_ID, 0L) ?: 0L
         val projectTitle = intent?.getStringExtra(EXTRA_PROJECT_TITLE) ?: "Vídeo"
+
+        if (processingJob?.isActive == true) {
+            if (runningProjectId != projectId) {
+                serviceScope.launch {
+                    val message = "Outra extração está em andamento. Tente novamente quando ela terminar."
+                    (application as SubTranslateApp).container.projectRepository.updateProgress(
+                        projectId,
+                        com.example.domain.model.ProjectStatus.ERROR.name,
+                        0f,
+                        message
+                    )
+                }
+            }
+            return START_NOT_STICKY
+        }
+
+        lastStartId = startId
         NotificationHelper.createNotificationChannel(this)
         val notification = NotificationHelper.buildProcessingNotification(this, projectTitle)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
@@ -75,21 +91,6 @@ class SubtitleExtractionService : Service() {
             )
         } else {
             startForeground(NotificationHelper.NOTIFICATION_ID, notification)
-        }
-
-        if (processingJob?.isActive == true) {
-            if (runningProjectId != projectId) {
-                serviceScope.launch {
-                    val message = "Outra extração está em andamento. Tente novamente quando ela terminar."
-                    (application as SubTranslateApp).container.projectRepository.updateProgress(
-                        projectId,
-                        com.example.domain.model.ProjectStatus.ERROR.name,
-                        0f,
-                        message
-                    )
-                }
-            }
-            return START_NOT_STICKY
         }
 
         acquireProcessingWakeLock()
@@ -162,7 +163,7 @@ class SubtitleExtractionService : Service() {
         }.also { processingWakeLock = it }
 
         if (!wakeLock.isHeld) {
-            wakeLock.acquire()
+            wakeLock.acquire(4 * 60 * 60 * 1000L)
         }
     }
 
@@ -196,10 +197,15 @@ class SubtitleExtractionService : Service() {
         }
 
         fun stop(context: Context) {
+            if (activeProjectId == null) return
             val intent = Intent(context, SubtitleExtractionService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (_: IllegalStateException) {
+                context.stopService(Intent(context, SubtitleExtractionService::class.java))
+            }
         }
 
         fun pause(context: Context, projectId: Long) {

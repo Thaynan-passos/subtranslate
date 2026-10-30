@@ -40,15 +40,17 @@ object NotificationHelper {
     ) {
         if (!hasNotificationPermission(context)) return
 
+        val isCompleted = progress >= max
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setProgress(max, progress, progress <= 0)
-            .setOngoing(progress < max)
+            .setProgress(if (isCompleted) 0 else max, if (isCompleted) 0 else progress, !isCompleted && progress <= 0)
+            .setOngoing(!isCompleted)
+            .setAutoCancel(isCompleted)
             .setOnlyAlertOnce(true)
-        if (progress < max) {
+        if (!isCompleted) {
             builder.addAction(
                 android.R.drawable.ic_delete,
                 "Cancelar",

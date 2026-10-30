@@ -10,6 +10,7 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Matcher
 import kotlin.coroutines.resume
@@ -66,27 +67,35 @@ class MlKitTranslatorImpl(
     ): Boolean {
         val key = modelPairKey(sourceLanguage, targetLanguage)
         if (downloadedModelPairs.contains(key)) return true
-        return suspendCancellableCoroutine { continuation ->
-            try {
-                val client = getClient(sourceLanguage, targetLanguage)
-                val builder = DownloadConditions.Builder()
-                if (requireWifi) {
-                    builder.requireWifi()
-                }
-                onProgress(0.1f)
-                client.downloadModelIfNeeded(builder.build())
-                    .addOnSuccessListener {
-                        downloadedModelPairs.add(key)
-                        onProgress(1.0f)
-                        continuation.resume(true)
+        return withTimeoutOrNull(60_000L) {
+            suspendCancellableCoroutine { continuation ->
+                try {
+                    val client = getClient(sourceLanguage, targetLanguage)
+                    val builder = DownloadConditions.Builder()
+                    if (requireWifi) {
+                        builder.requireWifi()
                     }
-                    .addOnFailureListener {
+                    onProgress(0.1f)
+                    client.downloadModelIfNeeded(builder.build())
+                        .addOnSuccessListener {
+                            downloadedModelPairs.add(key)
+                            onProgress(1.0f)
+                            if (continuation.isActive) {
+                                continuation.resume(true)
+                            }
+                        }
+                        .addOnFailureListener {
+                            if (continuation.isActive) {
+                                continuation.resume(false)
+                            }
+                        }
+                } catch (_: Exception) {
+                    if (continuation.isActive) {
                         continuation.resume(false)
                     }
-            } catch (_: Exception) {
-                continuation.resume(false)
+                }
             }
-        }
+        } ?: false
     }
 
     data class GlossaryPlaceholder(
@@ -170,7 +179,7 @@ class MlKitTranslatorImpl(
             if (text.isBlank() || glossary.isEmpty()) return text
             var processed = text
 
-            for ((sourceTerm, targetTerm) in glossary) {
+            for ((sourceTerm, targetTerm) in glossary.entries.sortedByDescending { it.key.length }) {
                 if (sourceTerm.isBlank()) continue
                 try {
                     val escapedSource = Regex.escape(sourceTerm.trim())

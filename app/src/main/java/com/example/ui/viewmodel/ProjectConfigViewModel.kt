@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -121,8 +122,8 @@ class ProjectConfigViewModel(
 
                 // Sample a representative frame at 15% of duration
                 val sampleTime = (duration * 0.15f * 1000).toLong().coerceAtLeast(1_000_000L)
-                val frame = retriever.getFrameAtTime(sampleTime, MediaMetadataRetriever.OPTION_CLOSEST)
-                    ?: retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+                val frame = getScaledFrame(retriever, sampleTime, width, height)
+                    ?: getScaledFrame(retriever, 0, width, height)
 
                 if (!isActive || requestGeneration != videoLoadGeneration) {
                     frame?.takeUnless { it.isRecycled }?.recycle()
@@ -184,6 +185,8 @@ class ProjectConfigViewModel(
         if (_uiState.value.isAutoDetectingRoi) return
         val uri = _uiState.value.videoUri ?: return
         val duration = _uiState.value.durationMs
+        val videoWidth = _uiState.value.videoWidth
+        val videoHeight = _uiState.value.videoHeight
         val sourceLanguage = _uiState.value.sourceLang
         _uiState.value = _uiState.value.copy(error = null)
         _uiState.value = _uiState.value.copy(isAutoDetectingRoi = true)
@@ -197,8 +200,9 @@ class ProjectConfigViewModel(
 
                 val samplePoints = listOf(0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f, 0.90f)
                 for ((sampleIndex, ratio) in samplePoints.withIndex()) {
+                    if (!isActive) break
                     val timeUs = (duration * ratio.toDouble() * 1000.0).toLong()
-                    val frame = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                    val frame = getScaledFrame(retriever, timeUs, videoWidth, videoHeight)
                     if (frame != null) {
                         try {
                             val ocrRes = try {
@@ -334,6 +338,29 @@ class ProjectConfigViewModel(
         } finally {
             _uiState.value = _uiState.value.copy(isCreatingProject = false)
         }
+    }
+
+    private fun getScaledFrame(
+        retriever: MediaMetadataRetriever,
+        timeUs: Long,
+        videoWidth: Int,
+        videoHeight: Int
+    ): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+            return retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+        }
+        val width = videoWidth.coerceAtLeast(1)
+        val height = videoHeight.coerceAtLeast(1)
+        val maxDimension = 1280f
+        val scale = minOf(1f, maxDimension / maxOf(width, height))
+        val targetW = (width * scale).toInt().coerceAtLeast(1)
+        val targetH = (height * scale).toInt().coerceAtLeast(1)
+        return retriever.getScaledFrameAtTime(
+            timeUs,
+            MediaMetadataRetriever.OPTION_CLOSEST,
+            targetW,
+            targetH
+        )
     }
 
     companion object {

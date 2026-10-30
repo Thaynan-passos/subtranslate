@@ -23,8 +23,9 @@ data class SubtitleLine(
 
     companion object {
         fun formatTimestamp(timeMs: Long, isVtt: Boolean = false): String {
-            val totalSeconds = timeMs / 1000
-            val millis = timeMs % 1000
+            val safeMs = timeMs.coerceAtLeast(0L)
+            val totalSeconds = safeMs / 1000
+            val millis = safeMs % 1000
             val hours = totalSeconds / 3600
             val minutes = (totalSeconds % 3600) / 60
             val seconds = totalSeconds % 60

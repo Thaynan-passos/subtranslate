@@ -57,11 +57,11 @@ fun SettingsScreen(
     onGlossaryChanged: (String) -> Unit,
     onBackClick: () -> Unit
 ) {
-    var glossaryText by remember {
+    var glossaryText by remember(settings.glossaryRaw) {
         mutableStateOf(settings.glossaryRaw)
     }
-    var fontSize by remember { mutableIntStateOf(settings.subtitleFontSizeSp) }
-    var maxCharsPerLine by remember { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
+    var fontSize by remember(settings.subtitleFontSizeSp) { mutableIntStateOf(settings.subtitleFontSizeSp) }
+    var maxCharsPerLine by remember(settings.maxCharsPerLine) { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
 
     // Debounce saving glossary text
     androidx.compose.runtime.LaunchedEffect(glossaryText) {

@@ -77,18 +77,19 @@ class SubtitleExtractionPipeline(
 
     fun pause(projectId: Long) {
         pausedProjects.add(projectId)
-        updateState(projectId) { it.copy(isPaused = true) }
+        updateState(projectId) { it.copy(isPaused = true, step = "Processamento pausado") }
     }
 
     fun resume(projectId: Long) {
         pausedProjects.remove(projectId)
-        updateState(projectId) { it.copy(isPaused = false) }
+        updateState(projectId) { it.copy(isPaused = false, step = "Retomando processamento...") }
     }
 
     suspend fun cancel(projectId: Long) {
         cancelledProjects.add(projectId)
-        updateState(projectId) { it.copy(isRunning = false) }
-        projectRepository.updateProgress(projectId, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
+        pausedProjects.remove(projectId)
+        updateState(projectId) { it.copy(isRunning = false, isPaused = false) }
+        projectRepository.updateProgress(projectId, ProjectStatus.IDLE.name, 0f, "Cancelado pelo usuário")
         NotificationHelper.cancelNotification(context)
         SubtitleExtractionService.stop(context)
     }
@@ -158,10 +159,14 @@ class SubtitleExtractionPipeline(
 
                 val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 val durationMs = durationStr?.toLongOrNull() ?: project.durationMs
-                val videoWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                    ?.toIntOrNull() ?: 0
+                val rawWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
                     ?.toIntOrNull() ?: project.videoWidth
-                val videoHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val rawHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
                     ?.toIntOrNull() ?: project.videoHeight
+                val videoWidth = if (rotation == 90 || rotation == 270) rawHeight else rawWidth
+                val videoHeight = if (rotation == 90 || rotation == 270) rawWidth else rawHeight
                 if (durationMs <= 0L) {
                     throw IllegalStateException("O vídeo selecionado possui duração inválida (0s).")
                 }
@@ -214,7 +219,6 @@ class SubtitleExtractionPipeline(
 
                     if (rawFrame != null) {
                         var croppedBitmap: Bitmap? = null
-                        var enhancedBitmap: Bitmap? = null
                         try {
                             val frameW = rawFrame.width
                             val frameH = rawFrame.height
@@ -236,19 +240,11 @@ class SubtitleExtractionPipeline(
                             var detectedConfidence: Float
 
                             if (stdDev < 6.0f) {
-                                val fullFrameOcr = try {
-                                    ocrEngine.recognizeText(rawFrame, project.sourceLanguage)
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (_: Exception) {
-                                    failedOcrFrames++
-                                    null
-                                }
-                                detectedText = fullFrameOcr?.fullText.orEmpty()
-                                detectedConfidence = fullFrameOcr?.confidence ?: 0f
+                                detectedText = ""
+                                detectedConfidence = 0f
                                 lastThumb = currentThumb
-                                lastOcrText = detectedText
-                                lastConfidence = detectedConfidence
+                                lastOcrText = ""
+                                lastConfidence = 0f
                                 lastOcrTimeMs = currentTimeMs
                             } else {
                                 val isSimilarToLast = lastThumb != null &&
@@ -259,30 +255,16 @@ class SubtitleExtractionPipeline(
                                     detectedText = lastOcrText
                                     detectedConfidence = lastConfidence
                                 } else {
-                                    val enhanced = ImagePreprocessor.enhanceForOcr(crop)
-                                    enhancedBitmap = enhanced
                                     val ocrRes = try {
-                                        ocrEngine.recognizeText(enhanced, project.sourceLanguage)
+                                        ocrEngine.recognizeText(crop, project.sourceLanguage)
                                     } catch (e: CancellationException) {
                                         throw e
                                     } catch (_: Exception) {
+                                        failedOcrFrames++
                                         null
                                     }
                                     detectedText = ocrRes?.fullText.orEmpty()
                                     detectedConfidence = ocrRes?.confidence ?: 0f
-
-                                    if (detectedText.isBlank()) {
-                                        val fullFrameOcr = try {
-                                            ocrEngine.recognizeText(rawFrame, project.sourceLanguage)
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (_: Exception) {
-                                            if (ocrRes == null) failedOcrFrames++
-                                            null
-                                        }
-                                        detectedText = fullFrameOcr?.fullText.orEmpty()
-                                        detectedConfidence = fullFrameOcr?.confidence ?: 0f
-                                    }
 
                                     lastThumb = currentThumb
                                     lastOcrText = detectedText
@@ -301,9 +283,6 @@ class SubtitleExtractionPipeline(
                                 )
                             }
                         } finally {
-                            if (enhancedBitmap != null && enhancedBitmap !== croppedBitmap && !enhancedBitmap.isRecycled) {
-                                enhancedBitmap.recycle()
-                            }
                             if (croppedBitmap != null && croppedBitmap !== rawFrame && !croppedBitmap.isRecycled) {
                                 croppedBitmap.recycle()
                             }
@@ -482,12 +461,14 @@ class SubtitleExtractionPipeline(
                 Result.success(finalLines)
             } catch (c: CancellationException) {
                 withContext(NonCancellable) {
-                    projectRepository.updateProgress(project.id, ProjectStatus.PAUSED.name, 0f, "Cancelado")
+                    pausedProjects.remove(project.id)
+                    projectRepository.updateProgress(project.id, ProjectStatus.IDLE.name, 0f, "Cancelado pelo usuário")
                     updateState(project.id) {
                         PipelineState(
                             step = "Cancelado pelo usuário",
                             progress = 0f,
                             isRunning = false,
+                            isPaused = false,
                             errorMessage = "Cancelado"
                         )
                     }

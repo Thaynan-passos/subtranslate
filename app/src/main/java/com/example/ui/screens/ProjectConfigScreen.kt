@@ -419,7 +419,7 @@ fun InteractiveRoiPreview(
     var activeHandle by remember { mutableStateOf<Int?>(null) }
 
     val videoAspect = if (videoWidth > 0 && videoHeight > 0) {
-        (videoWidth.toFloat() / videoHeight.toFloat()).coerceIn(0.5f, 2.5f)
+        (videoWidth.toFloat() / videoHeight.toFloat()).coerceIn(0.3f, 3.0f)
     } else {
         16f / 9f
     }

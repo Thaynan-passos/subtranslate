@@ -230,7 +230,7 @@ fun ReviewEditorScreen(
         ) {
             // Player Area with Real-Time Subtitle Overlay positioned on Project ROI
             val videoAspect = if (project != null && project.videoWidth > 0 && project.videoHeight > 0) {
-                (project.videoWidth.toFloat() / project.videoHeight.toFloat()).coerceIn(0.6f, 2.4f)
+                (project.videoWidth.toFloat() / project.videoHeight.toFloat()).coerceIn(0.3f, 3.0f)
             } else {
                 16f / 9f
             }
@@ -406,7 +406,7 @@ fun ReviewEditorScreen(
     // Split Line Dialog
     if (splittingLine != null) {
         val targetLine = splittingLine!!
-        var splitPosSec by remember {
+        var splitPosSec by remember(targetLine.id) {
             val midMs = (targetLine.startTimeMs + targetLine.endTimeMs) / 2
             mutableStateOf(String.format(java.util.Locale.US, "%.2f", midMs / 1000f))
         }
@@ -570,10 +570,10 @@ fun EditSubtitleDialog(
     onDismiss: () -> Unit,
     onSave: (String, String, Long, Long) -> Unit
 ) {
-    var original by remember { mutableStateOf(line.originalText) }
-    var translated by remember { mutableStateOf(line.translatedText) }
-    var startSec by remember { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.startTimeMs / 1000f)) }
-    var endSec by remember { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.endTimeMs / 1000f)) }
+    var original by remember(line.id) { mutableStateOf(line.originalText) }
+    var translated by remember(line.id) { mutableStateOf(line.translatedText) }
+    var startSec by remember(line.id) { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.startTimeMs / 1000f)) }
+    var endSec by remember(line.id) { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.endTimeMs / 1000f)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

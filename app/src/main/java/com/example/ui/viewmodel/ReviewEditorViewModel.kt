@@ -181,8 +181,13 @@ class ReviewEditorViewModel(
                 val current = lines.firstOrNull { it.id == lineId }
                 if (current != null) {
                     val currentSettings = settings.value
+                    val coherentSourceText = current.originalText
+                        .replace("\r\n", " ")
+                        .replace("\n", " ")
+                        .replace(Regex("\\s+"), " ")
+                        .trim()
                     val newTranslation = translator.translate(
-                        text = current.originalText,
+                        text = coherentSourceText,
                         sourceLanguage = proj.sourceLanguage,
                         targetLanguage = proj.targetLanguage,
                         glossary = currentSettings.glossaryTerms,
