@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.domain.model.AppSettings
+import com.example.domain.util.WatermarkFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -27,11 +28,15 @@ class SettingsRepository(private val context: Context) {
         val SUBTITLE_FONT_SIZE = intPreferencesKey("subtitle_font_size")
         val SUBTITLE_TEXT_COLOR = stringPreferencesKey("subtitle_text_color")
         val GLOSSARY_RAW = stringPreferencesKey("glossary_raw")
+        val FILTER_WATERMARKS = booleanPreferencesKey("filter_watermarks")
+        val IGNORED_TERMS_RAW = stringPreferencesKey("ignored_terms_raw")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         val glossaryString = prefs[Keys.GLOSSARY_RAW] ?: ""
         val glossaryMap = parseGlossary(glossaryString)
+        val ignoredTermsString = prefs[Keys.IGNORED_TERMS_RAW] ?: ""
+        val parsedIgnoredTerms = WatermarkFilter.parseIgnoredTerms(ignoredTermsString)
 
         AppSettings(
             defaultFps = prefs[Keys.DEFAULT_FPS] ?: 2,
@@ -43,7 +48,10 @@ class SettingsRepository(private val context: Context) {
             subtitleFontSizeSp = prefs[Keys.SUBTITLE_FONT_SIZE] ?: 18,
             subtitleTextColorHex = prefs[Keys.SUBTITLE_TEXT_COLOR] ?: "#FFFFFFFF",
             glossaryRaw = glossaryString,
-            glossaryTerms = glossaryMap
+            glossaryTerms = glossaryMap,
+            filterWatermarks = prefs[Keys.FILTER_WATERMARKS] ?: true,
+            ignoredTermsRaw = ignoredTermsString,
+            ignoredTerms = parsedIgnoredTerms
         )
     }
 
@@ -65,6 +73,22 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateGlossary(rawText: String) {
         context.settingsDataStore.edit { it[Keys.GLOSSARY_RAW] = rawText }
+    }
+
+    suspend fun updateFilterWatermarks(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.FILTER_WATERMARKS] = enabled }
+    }
+
+    suspend fun updateIgnoredTerms(rawText: String) {
+        context.settingsDataStore.edit { it[Keys.IGNORED_TERMS_RAW] = rawText }
+    }
+
+    suspend fun updateMinSpeechDuration(durationMs: Long) {
+        context.settingsDataStore.edit { it[Keys.MIN_SPEECH_DURATION] = durationMs.coerceIn(100L, 5000L).toInt() }
+    }
+
+    suspend fun updateSimilarityThreshold(threshold: Float) {
+        context.settingsDataStore.edit { it[Keys.SIMILARITY_THRESHOLD] = threshold.coerceIn(0.50f, 0.98f) }
     }
 
     companion object {

@@ -18,6 +18,7 @@ import com.example.domain.model.RawFrameDetection
 import com.example.domain.model.SubtitleLine
 import com.example.domain.util.ImagePreprocessor
 import com.example.domain.util.TemporalSpeechGrouper
+import com.example.domain.util.WatermarkFilter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -88,8 +89,15 @@ class SubtitleExtractionPipeline(
     suspend fun cancel(projectId: Long) {
         cancelledProjects.add(projectId)
         pausedProjects.remove(projectId)
-        updateState(projectId) { it.copy(isRunning = false, isPaused = false) }
-        projectRepository.updateProgress(projectId, ProjectStatus.IDLE.name, 0f, "Cancelado pelo usuário")
+        updateState(projectId) {
+            it.copy(
+                isRunning = false,
+                isPaused = false,
+                step = "Cancelado pelo usuário",
+                errorMessage = "Processamento cancelado pelo usuário."
+            )
+        }
+        projectRepository.updateProgress(projectId, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
         NotificationHelper.cancelNotification(context)
         SubtitleExtractionService.stop(context)
     }
@@ -263,7 +271,16 @@ class SubtitleExtractionPipeline(
                                         failedOcrFrames++
                                         null
                                     }
-                                    detectedText = ocrRes?.fullText.orEmpty()
+                                    val ocrText = ocrRes?.fullText.orEmpty()
+                                    detectedText = if (appSettings.filterWatermarks) {
+                                        WatermarkFilter.cleanText(
+                                            text = ocrText,
+                                            filterEnabled = true,
+                                            customIgnoredTerms = appSettings.ignoredTerms
+                                        )
+                                    } else {
+                                        ocrText
+                                    }
                                     detectedConfidence = ocrRes?.confidence ?: 0f
 
                                     lastThumb = currentThumb
@@ -338,7 +355,9 @@ class SubtitleExtractionPipeline(
                     minDurationMs = appSettings.minSpeechDurationMs,
                     sampleIntervalMs = intervalMs,
                     minConsecutiveFrames = if (fps == 1) 1 else 2,
-                    videoDurationMs = durationMs
+                    videoDurationMs = durationMs,
+                    filterWatermarks = appSettings.filterWatermarks,
+                    ignoredTerms = appSettings.ignoredTerms
                 )
                 val groupedLines = grouper.groupDetections(project.id, rawDetections)
                 if (groupedLines.isEmpty()) {
@@ -347,10 +366,10 @@ class SubtitleExtractionPipeline(
                     )
                 }
 
-                // Clear previous lines before inserting fresh batch (Item 1: Avoid duplication!)
+                // Clear previous lines before inserting fresh batch
                 subtitleRepository.clearLines(project.id)
 
-                // Step 4: Batch Translation with Checkpoints (Item 1 & 11)
+                // Step 4: Batch Translation with Checkpoints
                 updateState(project.id) {
                     it.copy(
                         step = "Traduzindo falas para ${project.targetLanguage.uppercase()}...",
@@ -375,11 +394,23 @@ class SubtitleExtractionPipeline(
                         }
                     }
 
+                    // Clean out any residual watermark elements before sending to translation
+                    val cleanedOriginalText = WatermarkFilter.cleanText(
+                        text = line.originalText,
+                        filterEnabled = appSettings.filterWatermarks,
+                        customIgnoredTerms = appSettings.ignoredTerms
+                    )
+
+                    if (cleanedOriginalText.isBlank()) {
+                        // Entire line was watermark or promotional text - skip it
+                        continue
+                    }
+
                     var translatedText = ""
                     var isLineFlagged = line.isFlagged
 
                     try {
-                        val coherentSourceText = line.originalText
+                        val coherentSourceText = cleanedOriginalText
                             .replace("\r\n", " ")
                             .replace("\n", " ")
                             .replace(Regex("\\s+"), " ")
@@ -396,12 +427,14 @@ class SubtitleExtractionPipeline(
                         throw e
                     } catch (e: Exception) {
                         // Translation failed: flag line and retain original text
-                        translatedText = line.originalText
+                        translatedText = cleanedOriginalText
                         isLineFlagged = true
                         failedCount++
                     }
 
                     val translatedLine = line.copy(
+                        index = finalLines.size + 1,
+                        originalText = cleanedOriginalText,
                         translatedText = translatedText,
                         isFlagged = isLineFlagged
                     )
@@ -428,7 +461,18 @@ class SubtitleExtractionPipeline(
                         )
                         NotificationHelper.updateProgressNotification(context, project.title, "Traduzindo ${idx + 1}/$totalLines", (transProgress * 100).toInt())
                     }
+                }
 
+                // Flush any remaining lines if the final line(s) were skipped by the watermark filter
+                if (batchToSave.isNotEmpty()) {
+                    subtitleRepository.saveLines(batchToSave)
+                    batchToSave.clear()
+                }
+
+                if (finalLines.isEmpty()) {
+                    throw IllegalStateException(
+                        "Todas as falas detectadas foram filtradas como marca d'água. Ajuste o filtro ou a região de interesse e tente novamente."
+                    )
                 }
 
                 // Mark Completed
@@ -462,14 +506,14 @@ class SubtitleExtractionPipeline(
             } catch (c: CancellationException) {
                 withContext(NonCancellable) {
                     pausedProjects.remove(project.id)
-                    projectRepository.updateProgress(project.id, ProjectStatus.IDLE.name, 0f, "Cancelado pelo usuário")
+                    projectRepository.updateProgress(project.id, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
                     updateState(project.id) {
                         PipelineState(
                             step = "Cancelado pelo usuário",
                             progress = 0f,
                             isRunning = false,
                             isPaused = false,
-                            errorMessage = "Cancelado"
+                            errorMessage = "Processamento cancelado pelo usuário."
                         )
                     }
                     NotificationHelper.cancelNotification(context)

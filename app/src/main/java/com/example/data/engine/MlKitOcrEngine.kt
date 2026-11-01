@@ -42,45 +42,37 @@ class MlKitOcrEngine : OcrEngine {
 
     override suspend fun recognizeText(bitmap: Bitmap, languageCode: String): OcrResult {
         var lastException: Exception? = null
-        for (attempt in 1..3) {
+        for (attempt in 1..2) {
             try {
                 return recognizeWithVariants(bitmap, languageCode)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 lastException = e
-                if (attempt < 3) {
-                    delay(1500L)
+                if (attempt < 2) {
+                    delay(150L)
                 }
             }
         }
-        throw lastException ?: IllegalStateException("Falha no reconhecimento de texto OCR após 3 tentativas.")
+        throw lastException ?: IllegalStateException("Falha no reconhecimento de texto OCR após 2 tentativas.")
     }
 
     private suspend fun recognizeWithVariants(bitmap: Bitmap, languageCode: String): OcrResult {
         val enhanced = ImagePreprocessor.enhanceForOcr(bitmap)
-        var contrast: Bitmap? = null
-        var binary: Bitmap? = null
-        try {
-            val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
-            if (!needsAlternateImage(originalResult)) return originalResult
+        val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
+        if (!needsAlternateImage(originalResult)) return originalResult
 
-            contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
-            val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
-            var bestResult = chooseBetterResult(originalResult, contrastResult)
+        val contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
+        val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
+        var bestResult = chooseBetterResult(originalResult, contrastResult)
 
-            if (bestResult.fullText.isBlank() ||
-                bestResult.fullText.count { it.isLetterOrDigit() } <= 2
-            ) {
-                binary = ImagePreprocessor.createOtsuVariant(enhanced)
-                val binaryResult = recognizeOnce(binary, languageCode, bitmap.width, bitmap.height)
-                bestResult = chooseBetterResult(bestResult, binaryResult)
-            }
-            return bestResult
-        } finally {
-            if (binary != null && !binary.isRecycled) binary.recycle()
-            if (contrast != null && !contrast.isRecycled) contrast.recycle()
-            if (enhanced !== bitmap && !enhanced.isRecycled) enhanced.recycle()
+        if (bestResult.fullText.isBlank() ||
+            bestResult.fullText.count { it.isLetterOrDigit() } <= 2
+        ) {
+            val binary = ImagePreprocessor.createOtsuVariant(enhanced)
+            val binaryResult = recognizeOnce(binary, languageCode, bitmap.width, bitmap.height)
+            bestResult = chooseBetterResult(bestResult, binaryResult)
         }
+        return bestResult
     }
 
     private suspend fun recognizeOnce(
@@ -160,10 +152,9 @@ class MlKitOcrEngine : OcrEngine {
                     if (elemConfidences.isNotEmpty()) elemConfidences.average().toFloat() else 0.85f
                 }
             }
-            allConfidences.add(blockConfidence)
-
             val cleanedBlock = normalizeText(block.text)
             if (cleanedBlock.isNotBlank()) {
+                allConfidences.add(blockConfidence)
                 blocks.add(
                     OcrTextBlock(
                         text = cleanedBlock,

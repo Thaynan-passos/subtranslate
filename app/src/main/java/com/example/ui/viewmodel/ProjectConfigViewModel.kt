@@ -13,6 +13,7 @@ import com.example.domain.engine.OcrEngine
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.RegionOfInterest
+import com.example.domain.util.WatermarkFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -222,6 +223,10 @@ class ProjectConfigViewModel(
                                 if (usefulCharacters < 2 || boxHeight !in 0.004f..0.22f) {
                                     return@mapNotNull null
                                 }
+                                // Ignore blocks that match obvious watermark signatures
+                                if (WatermarkFilter.isLineWatermark(block.text)) {
+                                    return@mapNotNull null
+                                }
                                 RoiCandidate(
                                     left = (box.left / frameW).coerceIn(0f, 1f),
                                     top = (box.top / frameH).coerceIn(0f, 1f),
@@ -247,9 +252,16 @@ class ProjectConfigViewModel(
                 }
 
                 withContext(Dispatchers.Main) {
+                    // Prioritize clusters with consistent detections across multiple samples first,
+                    // then prefer the bottom half of the screen where subtitles typically appear.
                     val selectedCluster = roiClusters.maxWithOrNull(
-                        compareBy<RoiCluster> { it.sampleIndices.size }
-                            .thenBy { cluster -> cluster.candidates.map { it.centerY }.average() }
+                        compareBy<RoiCluster> { cluster ->
+                            val avgY = cluster.candidates.map { it.centerY }.average().toFloat()
+                            val verticalWeight = if (avgY >= 0.60f) 2 else if (avgY >= 0.40f) 1 else 0
+                            // Multi-sample consistency outweighs isolated single-frame detections
+                            (cluster.sampleIndices.size * 3) + verticalWeight
+                        }.thenBy { it.sampleIndices.size }
+                         .thenBy { cluster -> cluster.candidates.map { it.centerY }.average() }
                     )
                     _uiState.value = if (selectedCluster != null) {
                         val candidates = selectedCluster.candidates

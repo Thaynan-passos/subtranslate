@@ -67,7 +67,7 @@ class MlKitTranslatorImpl(
     ): Boolean {
         val key = modelPairKey(sourceLanguage, targetLanguage)
         if (downloadedModelPairs.contains(key)) return true
-        return withTimeoutOrNull(60_000L) {
+        return withTimeoutOrNull(180_000L) {
             suspendCancellableCoroutine { continuation ->
                 try {
                     val client = getClient(sourceLanguage, targetLanguage)

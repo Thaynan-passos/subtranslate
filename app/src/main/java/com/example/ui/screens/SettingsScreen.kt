@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Security
@@ -55,19 +56,52 @@ fun SettingsScreen(
     onFontSizeChanged: (Int) -> Unit,
     onMaxCharsPerLineChanged: (Int) -> Unit,
     onGlossaryChanged: (String) -> Unit,
+    onFilterWatermarksChanged: (Boolean) -> Unit,
+    onIgnoredTermsChanged: (String) -> Unit,
     onBackClick: () -> Unit
 ) {
-    var glossaryText by remember(settings.glossaryRaw) {
-        mutableStateOf(settings.glossaryRaw)
-    }
+    var glossaryText by remember { mutableStateOf(settings.glossaryRaw) }
+    var ignoredTermsText by remember { mutableStateOf(settings.ignoredTermsRaw) }
     var fontSize by remember(settings.subtitleFontSizeSp) { mutableIntStateOf(settings.subtitleFontSizeSp) }
     var maxCharsPerLine by remember(settings.maxCharsPerLine) { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
+
+    // Sync from DataStore only when the local value hasn't diverged due to active user typing
+    androidx.compose.runtime.LaunchedEffect(settings.glossaryRaw) {
+        if (glossaryText.isEmpty() && settings.glossaryRaw.isNotEmpty()) {
+            glossaryText = settings.glossaryRaw
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(settings.ignoredTermsRaw) {
+        if (ignoredTermsText.isEmpty() && settings.ignoredTermsRaw.isNotEmpty()) {
+            ignoredTermsText = settings.ignoredTermsRaw
+        }
+    }
 
     // Debounce saving glossary text
     androidx.compose.runtime.LaunchedEffect(glossaryText) {
         if (glossaryText != settings.glossaryRaw) {
             kotlinx.coroutines.delay(500)
             onGlossaryChanged(glossaryText)
+        }
+    }
+
+    // Debounce saving ignored terms
+    androidx.compose.runtime.LaunchedEffect(ignoredTermsText) {
+        if (ignoredTermsText != settings.ignoredTermsRaw) {
+            kotlinx.coroutines.delay(500)
+            onIgnoredTermsChanged(ignoredTermsText)
+        }
+    }
+
+    // Flush any pending unsaved text edits immediately when leaving SettingsScreen
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            if (glossaryText != settings.glossaryRaw) {
+                onGlossaryChanged(glossaryText)
+            }
+            if (ignoredTermsText != settings.ignoredTermsRaw) {
+                onIgnoredTermsChanged(ignoredTermsText)
+            }
         }
     }
 
@@ -110,6 +144,66 @@ fun SettingsScreen(
                         text = "• OCR: Google ML Kit Text Recognition v2 (On-device)\n• Tradutor: Google ML Kit On-device Translate (Offline)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Watermark & Noise Filter Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Block, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Filtro de Marcas d'Água e Ruídos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Filtrar marcas d'água e URLs automaticamente", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "Ignora @handles de redes sociais, links (Telegram, sites), textos estáticos e tags de qualidade (1080p, fansub)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.filterWatermarks,
+                            onCheckedChange = onFilterWatermarksChanged
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Termos ou canais adicionais a ignorar:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Insira nomes de canais, sites ou palavras fixas a ignorar (separados por vírgula ou por linha):",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = ignoredTermsText,
+                        onValueChange = { ignoredTermsText = it },
+                        placeholder = { Text("Ex: meucanal, dorama_br, t.me/canal") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(90.dp)
+                            .testTag("ignored_terms_input")
                     )
                 }
             }

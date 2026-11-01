@@ -198,6 +198,8 @@ class ReviewEditorViewModel(
                     )
                     _uiState.value = _uiState.value.copy(userMessage = "Fala retraduzida com sucesso!")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(userMessage = "Erro ao retraduzir: ${e.message}")
             } finally {

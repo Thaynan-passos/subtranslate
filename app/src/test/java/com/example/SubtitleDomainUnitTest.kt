@@ -26,6 +26,7 @@ import com.example.domain.util.Levenshtein
 import com.example.domain.util.SubtitleExportType
 import com.example.domain.util.SubtitleFormatter
 import com.example.domain.util.TemporalSpeechGrouper
+import com.example.domain.util.WatermarkFilter
 import com.example.ui.viewmodel.ProjectConfigViewModel
 import com.example.ui.viewmodel.ReviewEditorViewModel
 import org.junit.Assert.assertEquals
@@ -162,6 +163,79 @@ class SubtitleDomainUnitTest {
             )
         )
         assertEquals(2, changedCaptions.size)
+    }
+
+    @Test
+    fun testWatermarkFilterIdentifiesHandlesAndUrls() {
+        assertTrue(WatermarkFilter.isLineWatermark("@canal_doramas"))
+        assertTrue(WatermarkFilter.isLineWatermark("https://www.meusite.com"))
+        assertTrue(WatermarkFilter.isLineWatermark("t.me/filmes_hd"))
+        assertTrue(WatermarkFilter.isLineWatermark("1080p WEB-DL x264"))
+        assertTrue(WatermarkFilter.isLineWatermark("Subscribe to our channel"))
+
+        // Dialogue must NOT be marked as watermark
+        assertFalse(WatermarkFilter.isLineWatermark("Where are we going right now?"))
+        assertFalse(WatermarkFilter.isLineWatermark("Eu avisei que isso ia acontecer."))
+    }
+
+    @Test
+    fun testWatermarkFilterCleansMixedText() {
+        val mixedText = "@canal_novelas\nOlá, como você está?"
+        val cleaned = WatermarkFilter.cleanText(mixedText)
+        assertEquals("Olá, como você está?", cleaned)
+
+        val inlineMixed = "Olá @canal_novelas tudo bem com você?"
+        val cleanedInline = WatermarkFilter.cleanText(inlineMixed)
+        assertEquals("Olá tudo bem com você?", cleanedInline)
+
+        val customIgnored = WatermarkFilter.cleanText(
+            text = "DoramaBR\nO segredo foi revelado finalmente.",
+            customIgnoredTerms = listOf("DoramaBR")
+        )
+        assertEquals("O segredo foi revelado finalmente.", customIgnored)
+
+        val symbolCustomIgnored = WatermarkFilter.cleanText(
+            text = "Assista agora [FanSub] e #dorama hoje",
+            customIgnoredTerms = listOf("[FanSub]", "#dorama")
+        )
+        assertEquals("Assista agora e hoje", symbolCustomIgnored)
+
+        val disabledFilter = WatermarkFilter.cleanText(
+            text = "@canal_novelas\nOlá, como você está?",
+            filterEnabled = false
+        )
+        assertEquals("@canal_novelas\nOlá, como você está?", disabledFilter)
+    }
+
+    @Test
+    fun testTemporalGrouperDiscardsStaticWatermarks() {
+        val grouper = TemporalSpeechGrouper(
+            similarityThreshold = 0.85f,
+            minDurationMs = 300L,
+            sampleIntervalMs = 500L,
+            minConsecutiveFrames = 2,
+            filterWatermarks = true,
+            maxSpeechDurationMs = 5000L
+        )
+
+        // Static watermark lasting 6 seconds without change (12 frames)
+        val staticWatermarkFrames = (0..12).map { i ->
+            RawFrameDetection(timestampMs = i * 500L, text = "LOGO FIXO CANAL", confidence = 0.95f)
+        }
+
+        val result = grouper.groupDetections(1L, staticWatermarkFrames)
+        assertTrue("Static watermark cluster lasting too long should be discarded", result.isEmpty())
+
+        // Long multi-line dialogue or lyrics (> 35 chars) must NOT be discarded as static watermark
+        val longDialogueFrames = (0..12).map { i ->
+            RawFrameDetection(
+                timestampMs = i * 500L,
+                text = "Esta é uma fala longa de diálogo que permanece na tela durante uma cena lenta",
+                confidence = 0.95f
+            )
+        }
+        val dialogueResult = grouper.groupDetections(1L, longDialogueFrames)
+        assertEquals(1, dialogueResult.size)
     }
 
     @Test
@@ -493,6 +567,31 @@ class SubtitleDomainUnitTest {
         )
         assertEquals(0, translator.translateCalls)
         assertEquals(0, (pipeline.getPipelineState(42L).value.extractedLinesCount))
+    }
+
+    @Test
+    fun pipelineCancelMarksProjectAsPausedSoItDoesNotAutoRestart() = runTest {
+        val dao = FakeProjectDao(Project(
+            id = 77L,
+            title = "Cancelamento",
+            videoUri = "file:///unused.mp4",
+            durationMs = 10_000L,
+            status = ProjectStatus.PROCESSING
+        ))
+        val projectRepository = ProjectRepository(dao, FakeSubtitleLineDao())
+        val subtitleRepository = SubtitleRepository(FakeSubtitleLineDao(), FakeTranslationCacheDao())
+        val pipeline = SubtitleExtractionPipeline(
+            context = ApplicationProvider.getApplicationContext<Context>(),
+            projectRepository = projectRepository,
+            subtitleRepository = subtitleRepository,
+            ocrEngine = FakeOcrEngine(),
+            translator = DownloadFailingTranslator()
+        )
+
+        pipeline.cancel(77L)
+
+        assertEquals(ProjectStatus.PAUSED.name, dao.project.status)
+        assertFalse(pipeline.getPipelineState(77L).value.isRunning)
     }
 
     private class DownloadFailingTranslator : Translator {

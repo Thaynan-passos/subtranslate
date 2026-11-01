@@ -96,7 +96,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val projectViewModel: ProjectViewModel = viewModel(
-                        factory = ProjectViewModel.Factory(container.projectRepository)
+                        factory = ProjectViewModel.Factory(
+                            repository = container.projectRepository,
+                            context = applicationContext,
+                            extractionPipeline = container.extractionPipeline
+                        )
                     )
                     val projects by projectViewModel.projects.collectAsState()
 
@@ -189,7 +193,7 @@ class MainActivity : ComponentActivity() {
                             val pipelineState by processingViewModel.pipelineState.collectAsState()
                             val currentProject by processingViewModel.project.collectAsState()
 
-                            // Auto start only if IDLE (Item 3: Never auto-start on ERROR or PAUSED)
+                            // Auto start only if IDLE (Never auto-start on ERROR or PAUSED)
                             LaunchedEffect(projId, currentProject?.status) {
                                 val proj = currentProject
                                 if (proj != null) {
@@ -310,6 +314,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onGlossaryChanged = {
                                     scope.launch { container.settingsRepository.updateGlossary(it) }
+                                },
+                                onFilterWatermarksChanged = {
+                                    scope.launch { container.settingsRepository.updateFilterWatermarks(it) }
+                                },
+                                onIgnoredTermsChanged = {
+                                    scope.launch { container.settingsRepository.updateIgnoredTerms(it) }
                                 },
                                 onBackClick = { navigateBack() }
                             )

@@ -8,7 +8,10 @@ class TemporalSpeechGrouper(
     private val minDurationMs: Long = 300L,
     private val sampleIntervalMs: Long = 500L,
     private val minConsecutiveFrames: Int = 2,
-    private val videoDurationMs: Long = Long.MAX_VALUE
+    private val videoDurationMs: Long = Long.MAX_VALUE,
+    private val filterWatermarks: Boolean = true,
+    private val ignoredTerms: List<String> = emptyList(),
+    private val maxSpeechDurationMs: Long = 15_000L
 ) {
 
     /**
@@ -18,7 +21,10 @@ class TemporalSpeechGrouper(
         projectId: Long,
         detections: List<RawFrameDetection>
     ): List<SubtitleLine> {
-        val validDetections = detections.filter { it.text.isNotBlank() }
+        val validDetections = detections
+            .map { it.copy(text = cleanSubtitleText(it.text)) }
+            .filter { it.text.isNotBlank() }
+
         if (validDetections.isEmpty()) return emptyList()
 
         val clusters = mutableListOf<MutableList<RawFrameDetection>>()
@@ -52,12 +58,14 @@ class TemporalSpeechGrouper(
         val initialLines = mutableListOf<SubtitleLine>()
         var index = 1
         for (cluster in clusters) {
-            val isHighConfidenceSingleFrame = cluster.size == 1 &&
+            val isSingleFrameAtLowFps = cluster.size == 1 &&
+                    sampleIntervalMs >= 1000L &&
                     sampleIntervalMs >= minDurationMs &&
                     cluster.first().confidence >= 0.75f &&
                     cluster.first().text.count { it.isLetterOrDigit() } >= 2
+
             // Discard clusters that don't meet minimum consecutive frames
-            if (cluster.size < minConsecutiveFrames && !isHighConfidenceSingleFrame) {
+            if (cluster.size < minConsecutiveFrames && !isSingleFrameAtLowFps) {
                 continue
             }
 
@@ -68,6 +76,11 @@ class TemporalSpeechGrouper(
             val duration = endTime - startTime
 
             if (duration < minDurationMs || endTime <= startTime) {
+                continue
+            }
+
+            // Discard static watermark clusters that stay on screen continuously for too long
+            if (filterWatermarks && WatermarkFilter.isStaticWatermarkCluster(cluster, duration, maxSpeechDurationMs)) {
                 continue
             }
 
@@ -122,7 +135,12 @@ class TemporalSpeechGrouper(
     }
 
     private fun cleanSubtitleText(text: String): String {
-        return text
+        val filtered = WatermarkFilter.cleanText(
+            text = text,
+            filterEnabled = filterWatermarks,
+            customIgnoredTerms = ignoredTerms
+        )
+        return filtered
             .lines()
             .map { it.trim() }
             .filter { line -> line.isNotBlank() && line.any { ch -> ch.isLetterOrDigit() } }
