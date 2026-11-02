@@ -4,6 +4,7 @@ import com.example.data.repository.SubtitleRepository
 import com.example.domain.engine.Translator
 import com.example.domain.util.BuiltInGlossary
 import com.example.domain.util.LanguageHelper
+import com.example.domain.util.UniversalSpeechHelper
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateRemoteModel
@@ -113,6 +114,12 @@ class MlKitTranslatorImpl(
     ): String {
         if (text.isBlank()) return text
 
+        // Expressões puramente universais / onomatopeias (ex: "Haaaa...", "Ohhhhh!", "Kyaaa?!", "Mmm...")
+        // são mantidas intactas para evitar alucinações e distorções do tradutor offline.
+        if (UniversalSpeechHelper.isUniversalExpression(text)) {
+            return text
+        }
+
         // Biblioteca embutida + glossário do usuário (o do usuário tem prioridade).
         val effectiveGlossary = BuiltInGlossary.forPair(sourceLanguage, targetLanguage) + glossary
 
@@ -197,7 +204,10 @@ class MlKitTranslatorImpl(
         }
 
         fun preparePlaceholders(text: String, glossary: Map<String, String>): Pair<String, List<GlossaryPlaceholder>> {
-            val activeGlossary = glossary.filterKeys { it.isNotBlank() }
+            // Incorpora onomatopeias e palavras arrastadas encontradas no texto para proteção via placeholders
+            val universalTokens = UniversalSpeechHelper.findUniversalTokensInMixedText(text)
+            val universalMap = universalTokens.associateWith { it }
+            val activeGlossary = (universalMap + glossary).filterKeys { it.isNotBlank() }
             if (activeGlossary.isEmpty() || text.isBlank()) return Pair(text, emptyList())
 
             val placeholders = mutableListOf<GlossaryPlaceholder>()

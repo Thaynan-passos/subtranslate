@@ -6,6 +6,7 @@ import com.example.domain.model.BoundingBox
 import com.example.domain.model.OcrResult
 import com.example.domain.model.OcrTextBlock
 import com.example.domain.util.ImagePreprocessor
+import com.example.domain.util.UniversalSpeechHelper
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -101,6 +102,9 @@ class MlKitOcrEngine : OcrEngine {
     }
 
     private fun needsAlternateImage(result: OcrResult): Boolean {
+        if (UniversalSpeechHelper.isExpressivePunctuation(result.fullText) && result.confidence >= 0.70f) {
+            return false
+        }
         val usefulCharacters = result.fullText.count { it.isLetterOrDigit() }
         return result.fullText.isBlank() || usefulCharacters <= 3 || result.confidence < 0.70f
     }
@@ -190,7 +194,9 @@ class MlKitOcrEngine : OcrEngine {
             .replace("[ \t]+".toRegex(), " ")
             .lines()
             .map { it.trim() }
-            .filter { line -> line.isNotBlank() && line.any { ch -> ch.isLetterOrDigit() } }
+            .filter { line ->
+                line.isNotBlank() && (line.any { ch -> ch.isLetterOrDigit() } || UniversalSpeechHelper.isExpressivePunctuation(line))
+            }
             .joinToString("\n")
     }
 

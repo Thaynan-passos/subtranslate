@@ -62,7 +62,8 @@ class TemporalSpeechGrouper(
                     sampleIntervalMs >= 1000L &&
                     sampleIntervalMs >= minDurationMs &&
                     cluster.first().confidence >= 0.75f &&
-                    cluster.first().text.count { it.isLetterOrDigit() } >= 2
+                    (cluster.first().text.count { it.isLetterOrDigit() } >= 1 ||
+                     UniversalSpeechHelper.isExpressivePunctuation(cluster.first().text))
 
             // Discard clusters that don't meet minimum consecutive frames
             if (cluster.size < minConsecutiveFrames && !isSingleFrameAtLowFps) {
@@ -143,7 +144,9 @@ class TemporalSpeechGrouper(
         return filtered
             .lines()
             .map { it.trim() }
-            .filter { line -> line.isNotBlank() && line.any { ch -> ch.isLetterOrDigit() } }
+            .filter { line ->
+                line.isNotBlank() && (line.any { ch -> ch.isLetterOrDigit() } || UniversalSpeechHelper.isExpressivePunctuation(line))
+            }
             .joinToString("\n")
             .trim()
     }

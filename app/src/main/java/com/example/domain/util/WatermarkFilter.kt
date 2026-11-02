@@ -88,7 +88,7 @@ object WatermarkFilter {
 
     /**
      * Cleans OCR text by stripping out watermark lines, promotional handles, and URLs,
-     * while preserving actual spoken dialogue lines.
+     * while preserving actual spoken dialogue lines and expressive punctuation.
      */
     fun cleanText(
         text: String,
@@ -135,7 +135,8 @@ object WatermarkFilter {
                 .replace(Regex("\\s+"), " ")
                 .trim()
 
-            if (lineWithoutWatermarks.isNotBlank() && lineWithoutWatermarks.any { it.isLetterOrDigit() }) {
+            if (lineWithoutWatermarks.isNotBlank() &&
+                (lineWithoutWatermarks.any { it.isLetterOrDigit() } || UniversalSpeechHelper.isExpressivePunctuation(lineWithoutWatermarks))) {
                 cleanedLines.add(lineWithoutWatermarks)
             }
         }
@@ -172,4 +173,3 @@ object WatermarkFilter {
         return false
     }
 }
-

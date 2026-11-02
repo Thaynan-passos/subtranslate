@@ -57,5 +57,8 @@ object Levenshtein {
             .lowercase()
             .replace("\\s+".toRegex(), " ")
             .replace("[.,!?:;\"'()\\-_]".toRegex(), "")
+            // Colapsa 3 ou mais letras repetidas idênticas em 2 (ex: "haaaaa" -> "haa", "ohhhhh" -> "ohh")
+            // para que variações de contagem no OCR em palavras arrastadas agrupem com alta similaridade.
+            .replace("(?i)(.)\\1{2,}".toRegex(), "$1$1")
     }
 }
