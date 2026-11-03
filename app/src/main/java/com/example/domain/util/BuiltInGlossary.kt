@@ -1,20 +1,324 @@
 package com.example.domain.util
 
 /**
- * Biblioteca local de termos difíceis de traduzir (vocabulário adulto / gírias / honoríficos).
+ * Biblioteca offline abrangente de termos, expressões idiomáticas (idioms), phrasal verbs,
+ * gírias e vocabulário frequente em vídeos, filmes, animes e séries (Inglês -> Português).
  *
- * Funciona como "pré-glossário": o tradutor soma estes termos ao glossário do usuário
- * (Configurações). Se o mesmo termo existir nos dois, o do usuário vence.
+ * Funciona offline no ML Kit (via placeholders e pós-processamento) e é injetada
+ * como regras de contexto na IA (Gemini).
  *
- * Regras de manutenção:
- *  - chaves em minúsculas (a busca ignora maiúsculas/minúsculas);
- *  - prefira FRASES a palavras soltas, para não quebrar usos comuns (ex.: "come", "hard");
- *  - alvo igual à chave = "não traduzir" (protege o termo da tradução automática).
+ * Regras:
+ *  - Chaves em minúsculas (busca case-insensitive).
+ *  - Ordenação prioritária por comprimento (frases completas antes de palavras isoladas).
+ *  - Alvo igual à chave = termo protegido que não deve ser traduzido.
  */
 object BuiltInGlossary {
 
-    private val enToPt: Map<String, String> = linkedMapOf(
-        // Anatomia / gírias
+    // 1. Phrasal verbs fundamentais (que tradutores automáticos traduzem literalmente de forma errada)
+    private val phrasalVerbs: Map<String, String> = linkedMapOf(
+        "figure it out" to "descobrir",
+        "figure out" to "entender",
+        "hang out with" to "passar um tempo com",
+        "hang out" to "sair junto",
+        "screw it up" to "estragar tudo",
+        "screw up" to "estragar tudo",
+        "messed up" to "estragado",
+        "mess up" to "fazer besteira",
+        "give up on" to "desistir de",
+        "give up" to "desistir",
+        "break down" to "desabar",
+        "break up with" to "terminar com",
+        "break up" to "terminar",
+        "show up" to "aparecer",
+        "turn down" to "recusar",
+        "turn up" to "aparecer",
+        "turn out" to "acabar sendo",
+        "look out for" to "ficar atento a",
+        "look out" to "cuidado",
+        "watch out for" to "ficar atento a",
+        "watch out" to "cuidado",
+        "calm down" to "se acalmar",
+        "chill out" to "relaxar",
+        "freak out" to "surtar",
+        "freaking out" to "surtando",
+        "pissed off" to "muito puto",
+        "piss off" to "irritar",
+        "shut up" to "cala a boca",
+        "shut down" to "desligar",
+        "catch up with" to "colocar o papo em dia com",
+        "catch up" to "alcançar",
+        "back off" to "se afastar",
+        "back down" to "recuar",
+        "hold on a second" to "espera um segundo",
+        "hold on a minute" to "espera um minuto",
+        "hold on" to "aguenta aí",
+        "hang on" to "espera aí",
+        "let down" to "desapontar",
+        "run out of" to "ficar sem",
+        "run out" to "acabar",
+        "give in" to "ceder",
+        "call off" to "cancelar",
+        "bring up" to "mencionar",
+        "point out" to "destacar",
+        "pass out" to "desmaiar",
+        "pass away" to "falecer",
+        "come up with" to "ter uma ideia de",
+        "come across" to "deparar-se com",
+        "get away with" to "sair impune de",
+        "get along with" to "se dar bem com",
+        "get along" to "se dar bem",
+        "get over" to "superar",
+        "get rid of" to "livrar-se de",
+        "get back at" to "se vingar de",
+        "get back to" to "retornar para",
+        "fall apart" to "desmoronar",
+        "find out" to "descobrir",
+        "end up" to "acabar por",
+        "put off" to "adiar",
+        "put up with" to "aguentar",
+        "count on" to "contar com",
+        "make up for" to "compensar",
+        "make out" to "dar uns amassos",
+        "take after" to "puxar a",
+        "take for granted" to "dar como certo",
+        "take off" to "decolar",
+        "stand up for" to "defender",
+        "stick around" to "ficar por perto",
+        "rip off" to "passar a perna",
+        "fed up with" to "de saco cheio de",
+        "fed up" to "de saco cheio",
+        "drop by" to "dar uma passada",
+        "cut it out" to "para com isso",
+        "check it out" to "dá uma olhada",
+        "check out" to "conferir",
+        "carry on" to "continuar",
+        "cheer up" to "animar-se",
+        "blow up" to "explodir",
+        "ask out" to "chamar para sair",
+        "work out" to "dar certo",
+        "rule out" to "descartar",
+        "tear down" to "derrubar",
+        "pull off" to "conseguir realizar"
+    )
+
+    // 2. Expressões idiomáticas (Idioms) e provérbios
+    private val idiomaticExpressions: Map<String, String> = linkedMapOf(
+        "piece of cake" to "moleza",
+        "hit the road" to "cair na estrada",
+        "hit the sack" to "ir para a cama",
+        "spill the beans" to "abrir o bico",
+        "spill the tea" to "contar a fofoca",
+        "under the weather" to "meio indisposto",
+        "cost an arm and a leg" to "custar os olhos da cara",
+        "bite the bullet" to "encarar a situação",
+        "break a leg" to "boa sorte",
+        "call it a day" to "dar o dia por encerrado",
+        "call it quits" to "dar por encerrado",
+        "cut corners" to "fazer nas coxas",
+        "cut to the chase" to "ir direto ao ponto",
+        "no big deal" to "nada de mais",
+        "big deal" to "grande coisa",
+        "hands down" to "com certeza",
+        "for real" to "sério mesmo",
+        "my bad" to "foi mal",
+        "no way" to "de jeito nenhum",
+        "you bet" to "pode apostar",
+        "tell me about it" to "nem me fale",
+        "never mind" to "deixa pra lá",
+        "get over it" to "supera isso",
+        "give me a break" to "dá um tempo",
+        "give him a break" to "dá um tempo para ele",
+        "give her a break" to "dá um tempo para ela",
+        "out of the blue" to "do nada",
+        "so far so good" to "até aqui, tudo bem",
+        "speak of the devil" to "falando no diabo",
+        "take it easy" to "vai com calma",
+        "up to you" to "você quem sabe",
+        "it's up to you" to "depende de você",
+        "make sense" to "fazer sentido",
+        "doesn't make sense" to "não faz sentido",
+        "as far as i know" to "até onde eu sei",
+        "by the way" to "a propósito",
+        "once in a blue moon" to "uma vez na vida e outra na morte",
+        "better late than never" to "antes tarde do que nunca",
+        "beat around the bush" to "ficar enrolando",
+        "pull yourself together" to "se recomponha",
+        "pulling my leg" to "tirando uma com a minha cara",
+        "ring a bell" to "soar familiar",
+        "see eye to eye" to "concordar plenamente",
+        "on the fence" to "em cima do muro",
+        "back to square one" to "de volta à estaca zero",
+        "the ball is in your court" to "a bola está com você",
+        "barking up the wrong tree" to "procurando no lugar errado",
+        "burn bridges" to "queimar pontes",
+        "cross that bridge when we come to it" to "resolver isso na hora certa",
+        "every cloud has a silver lining" to "há males que vêm para o bem",
+        "feeling blue" to "sentindo-se triste",
+        "in the nick of time" to "bem na hora",
+        "jump on the bandwagon" to "entrar na onda",
+        "keep an eye on" to "ficar de olho em",
+        "keep your chin up" to "de cabeça erguida",
+        "kill two birds with one stone" to "matar dois coelhos numa cajadada só",
+        "let the cat out of the bag" to "revelar o segredo",
+        "on cloud nine" to "nas nuvens de alegria",
+        "play it by ear" to "decidir na hora",
+        "rock the boat" to "criar confusão",
+        "through thick and thin" to "nos altos e baixos",
+        "touch and go" to "arriscado",
+        "weather the storm" to "superar as dificuldades",
+        "wild goose chase" to "busca inútil",
+        "you can say that again" to "nem me diga",
+        "safe and sound" to "são e salvo",
+        "spick and span" to "impecável",
+        "time flies" to "o tempo voa",
+        "long story short" to "resumindo a história",
+        "it is what it is" to "é o que é",
+        "fair enough" to "justo",
+        "make matters worse" to "para piorar a situação",
+        "to make matters worse" to "para piorar as coisas",
+        "at the end of the day" to "no fim das contas",
+        "so far" to "até agora",
+        "straight forward" to "direto ao ponto",
+        "straightforward" to "direto ao ponto"
+    )
+
+    // 3. Gírias modernas, internet, conversação e reações
+    private val modernSlangAndReactions: Map<String, String> = linkedMapOf(
+        "i'm down for that" to "eu topo isso",
+        "i'm down" to "eu topo",
+        "are you down" to "você topa",
+        "what's up" to "e aí",
+        "what is up" to "e aí",
+        "what's good" to "tudo bem",
+        "what's going on" to "o que está acontecendo",
+        "are you kidding me" to "tá brincando comigo",
+        "are you out of your mind" to "você perdeu a cabeça",
+        "are you insane" to "você é louco",
+        "screw you" to "vai se danar",
+        "damn it" to "droga",
+        "holy shit" to "caramba",
+        "holy crap" to "caramba",
+        "holy cow" to "caramba",
+        "what the heck" to "que diabos",
+        "what the hell" to "que diabos",
+        "what the fuck" to "que porra é essa",
+        "who the hell" to "quem diabos",
+        "how the hell" to "como diabos",
+        "where the hell" to "onde diabos",
+        "why the hell" to "por que diabos",
+        "for god's sake" to "pelo amor de Deus",
+        "thank goodness" to "graças a Deus",
+        "heads up" to "aviso prévio",
+        "hang in there" to "aguenta firme",
+        "keep it up" to "continue assim",
+        "no cap" to "sem caô",
+        "cap" to "mentira",
+        "cringe" to "vergonha alheia",
+        "lowkey" to "discretamente",
+        "highkey" to "totalmente",
+        "ghosted" to "deu um vácuo",
+        "ghosting" to "dar um vácuo",
+        "on point" to "impecável",
+        "slay" to "arrasou",
+        "vibe check" to "verificação de energia",
+        "catch feelings" to "se apaixonar",
+        "spill the beans" to "abrir o jogo",
+        "shook" to "chocado",
+        "salty" to "amargo",
+        "sus" to "suspeito",
+        "simp" to "paga-pau",
+        "doxxed" to "teve dados expostos",
+        "flexing" to "se exibindo",
+        "flex" to "ostentação",
+        "clout" to "fama",
+        "goat" to "o melhor de todos os tempos",
+        "banger" to "um sucesso",
+        "wholesome" to "adorável",
+        "badass" to "foda",
+        "dope" to "muito louco",
+        "lit" to "muito massa",
+        "fire" to "muito bom",
+        "legit" to "legítimo",
+        "creepy" to "bizarro",
+        "sketchy" to "suspeito",
+        "gross" to "nojento",
+        "lame" to "sem graça",
+        "sucks" to "é uma droga",
+        "that sucks" to "que droga",
+        "it sucks" to "isso é uma droga",
+        "you rock" to "você manda muito bem",
+        "my treat" to "por minha conta",
+        "on me" to "por minha conta",
+        "it's on me" to "é por minha conta"
+    )
+
+    // 4. Contrações e formas comuns do inglês falado
+    private val contractionsAndSpokenEnglish: Map<String, String> = linkedMapOf(
+        "i'm gonna" to "eu vou",
+        "you're gonna" to "você vai",
+        "he's gonna" to "ele vai",
+        "she's gonna" to "ela vai",
+        "we're gonna" to "nós vamos",
+        "they're gonna" to "eles vão",
+        "gonna" to "vai",
+        "wanna" to "quer",
+        "gotta" to "tem que",
+        "kinda" to "meio que",
+        "sorta" to "tipo",
+        "dunno" to "não sei",
+        "lemme" to "deixa eu",
+        "gimme" to "me dá",
+        "ain't" to "não é",
+        "y'all" to "vocês",
+        "outta" to "fora de",
+        "gotcha" to "entendi",
+        "cuz" to "porque",
+        "imma" to "eu vou",
+        "bet" to "com certeza"
+    )
+
+    // 5. Cultura pop, animes, jogos e mídia (termos consagrados ou protegidos)
+    private val cultureAndMediaTerms: Map<String, String> = linkedMapOf(
+        "cliffhanger" to "gancho de suspense",
+        "plot twist" to "reviravolta",
+        "easter egg" to "easter egg",
+        "soundtrack" to "trilha sonora",
+        "voice over" to "locução",
+        "live action" to "live-action",
+        "game over" to "fim de jogo",
+        "checkpoint" to "ponto de controle",
+        "level up" to "subir de nível",
+        "boss fight" to "luta contra o chefe",
+        "side quest" to "missão secundária",
+        "main quest" to "missão principal",
+        "speedrun" to "speedrun",
+        "respawn" to "renascer",
+        "spawn" to "surgir",
+        "cooldown" to "tempo de recarga",
+        "headshot" to "tiro na cabeça",
+        "stealth" to "furtivo",
+        "nerf" to "enfraquecer",
+        "buff" to "fortalecer",
+        "glitch" to "falha",
+        "senpai" to "senpai",
+        "sensei" to "sensei",
+        "onii-chan" to "onii-chan",
+        "onee-chan" to "onee-chan",
+        "onii-san" to "onii-san",
+        "onee-san" to "onee-san",
+        "kouhai" to "kouhai",
+        "tsundere" to "tsundere",
+        "yandere" to "yandere",
+        "otaku" to "otaku",
+        "hentai" to "hentai",
+        "futanari" to "futanari",
+        "bukkake" to "bukkake",
+        "ahegao" to "ahegao",
+        "milf" to "MILF"
+    )
+
+    // 6. Anatomia, gírias e expressões íntimas (preservadas e aprimoradas do projeto original)
+    private val adultAndIntimateVocabulary: Map<String, String> = linkedMapOf(
         "pussies" to "bucetas",
         "pussy" to "buceta",
         "clitoris" to "clitóris",
@@ -31,8 +335,6 @@ object BuiltInGlossary {
         "whore" to "puta",
         "nympho" to "ninfomaníaca",
         "nymphomaniac" to "ninfomaníaca",
-
-        // Atos e práticas
         "blow job" to "boquete",
         "blowjob" to "boquete",
         "hand job" to "punheta",
@@ -55,8 +357,6 @@ object BuiltInGlossary {
         "oral sex" to "sexo oral",
         "make love" to "fazer amor",
         "squirting" to "esguicho",
-
-        // Gozo
         "cumshot" to "gozada",
         "cumming" to "gozando",
         "i'm gonna cum" to "vou gozar",
@@ -66,8 +366,6 @@ object BuiltInGlossary {
         "cum inside" to "gozar dentro",
         "cum in me" to "goze dentro de mim",
         "creampie" to "creampie",
-
-        // Frases fixas de cena
         "fuck me harder" to "me fode mais forte",
         "fuck me" to "me fode",
         "spread your legs" to "abra as pernas",
@@ -77,41 +375,44 @@ object BuiltInGlossary {
         "lick it" to "lambe",
         "good girl" to "boa menina",
         "goodgirl" to "boa menina",
-
-        // Objetos
         "vibrator" to "vibrador",
         "dildo" to "dildo",
         "lube" to "lubrificante",
-        "condom" to "camisinha",
-
-        // Termos que devem ficar como estão
-        "hentai" to "hentai",
-        "futanari" to "futanari",
-        "bukkake" to "bukkake",
-        "ahegao" to "ahegao",
-        "milf" to "MILF",
-        "senpai" to "senpai",
-        "sensei" to "sensei",
-        "onii-chan" to "onii-chan",
-        "onee-chan" to "onee-chan",
-        "onii-san" to "onii-san",
-        "onee-san" to "onee-san"
+        "condom" to "camisinha"
     )
 
-    /** Retorna o glossário embutido para o par de idiomas, ou vazio se não houver. */
+    // Dicionário mestre consolidado
+    private val enToPtMaster: Map<String, String> by lazy {
+        val master = LinkedHashMap<String, String>()
+        master.putAll(phrasalVerbs)
+        master.putAll(idiomaticExpressions)
+        master.putAll(modernSlangAndReactions)
+        master.putAll(contractionsAndSpokenEnglish)
+        master.putAll(cultureAndMediaTerms)
+        master.putAll(adultAndIntimateVocabulary)
+        withCurlyApostrophes(master)
+    }
+
+    /** Retorna o glossário embutido para o par de idiomas, ou vazio se não for EN -> PT. */
     fun forPair(sourceLanguage: String, targetLanguage: String): Map<String, String> {
         val src = sourceLanguage.lowercase()
         val tgt = targetLanguage.lowercase()
         val isEnPt = (src == "en" || src == "english") &&
                 (tgt == "pt" || tgt == "pt-br" || tgt == "portuguese")
-        return if (isEnPt) withCurlyApostrophes(enToPt) else emptyMap()
+        return if (isEnPt) enToPtMaster else emptyMap()
     }
 
-    // O OCR costuma devolver ’ no lugar de '. Gera as duas variantes.
+    /** Total de termos na biblioteca offline. */
+    val totalTermsCount: Int
+        get() = enToPtMaster.size
+
+    // O OCR costuma devolver ’ no lugar de '. Gera as duas variantes automaticamente.
     private fun withCurlyApostrophes(base: Map<String, String>): Map<String, String> {
         val result = LinkedHashMap<String, String>(base)
         for ((k, v) in base) {
-            if (k.contains('\'')) result[k.replace('\'', '’')] = v
+            if (k.contains('\'')) {
+                result[k.replace('\'', '’')] = v
+            }
         }
         return result
     }

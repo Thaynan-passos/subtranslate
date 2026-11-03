@@ -52,7 +52,33 @@ object Levenshtein {
         return 1.0f - (dist.toFloat() / maxLen.toFloat())
     }
 
-    private fun cleanForComparison(text: String): String {
+    /**
+     * Checks if two strings are similar with absolute tolerance for short texts
+     * and percentage-based threshold for longer texts:
+     * - Length <= 6: max distance of 1 character
+     * - Length 7..12: max distance of 2 characters
+     * - Length > 12: normalized similarity >= threshold (default 0.80)
+     */
+    fun isSimilar(s1: String, s2: String, threshold: Float = 0.80f): Boolean {
+        val clean1 = cleanForComparison(s1)
+        val clean2 = cleanForComparison(s2)
+
+        if (clean1 == clean2) return true
+        val maxLen = max(clean1.length, clean2.length)
+        if (maxLen == 0) return true
+
+        val dist = distance(clean1, clean2)
+        return when {
+            maxLen <= 6 -> dist <= 1
+            maxLen <= 12 -> dist <= 2
+            else -> (1.0f - (dist.toFloat() / maxLen.toFloat())) >= threshold
+        }
+    }
+
+    fun areSimilar(s1: String, s2: String, threshold: Float = 0.80f): Boolean =
+        isSimilar(s1, s2, threshold)
+
+    fun cleanForComparison(text: String): String {
         return text.trim()
             .lowercase()
             .replace("\\s+".toRegex(), " ")

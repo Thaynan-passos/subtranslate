@@ -28,7 +28,7 @@ data class RawFrameDetection(
 data class AppSettings(
     val defaultFps: Int = 2,
     val minSpeechDurationMs: Long = 300L,
-    val textSimilarityThreshold: Float = 0.85f,
+    val textSimilarityThreshold: Float = 0.80f,
     val maxCharsPerLine: Int = 42,
     val coverOriginalOverlay: Boolean = true,
     val overlayColorHex: String = "#E6000000",
@@ -39,5 +39,8 @@ data class AppSettings(
     val glossaryTerms: Map<String, String> = emptyMap(),
     val filterWatermarks: Boolean = true,
     val ignoredTermsRaw: String = "",
-    val ignoredTerms: List<String> = emptyList()
+    val ignoredTerms: List<String> = emptyList(),
+    val translationEngine: String = "gemini",
+    val geminiApiKey: String = "",
+    val geminiModel: String = "gemini-2.5-flash"
 )

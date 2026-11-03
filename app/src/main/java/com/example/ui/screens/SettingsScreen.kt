@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,17 +18,24 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -34,6 +43,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,9 +55,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.domain.model.AppSettings
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,49 +72,70 @@ fun SettingsScreen(
     onGlossaryChanged: (String) -> Unit,
     onFilterWatermarksChanged: (Boolean) -> Unit,
     onIgnoredTermsChanged: (String) -> Unit,
+    onTranslationEngineChanged: (String) -> Unit,
+    onGeminiApiKeyChanged: (String) -> Unit,
+    onGeminiModelChanged: (String) -> Unit,
     onBackClick: () -> Unit
 ) {
     var glossaryText by remember { mutableStateOf(settings.glossaryRaw) }
     var ignoredTermsText by remember { mutableStateOf(settings.ignoredTermsRaw) }
+    var geminiApiKeyText by remember { mutableStateOf(settings.geminiApiKey) }
+    var showApiKey by remember { mutableStateOf(false) }
     var fontSize by remember(settings.subtitleFontSizeSp) { mutableIntStateOf(settings.subtitleFontSizeSp) }
     var maxCharsPerLine by remember(settings.maxCharsPerLine) { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
 
     // Sync from DataStore only when the local value hasn't diverged due to active user typing
-    androidx.compose.runtime.LaunchedEffect(settings.glossaryRaw) {
+    LaunchedEffect(settings.glossaryRaw) {
         if (glossaryText.isEmpty() && settings.glossaryRaw.isNotEmpty()) {
             glossaryText = settings.glossaryRaw
         }
     }
-    androidx.compose.runtime.LaunchedEffect(settings.ignoredTermsRaw) {
+    LaunchedEffect(settings.ignoredTermsRaw) {
         if (ignoredTermsText.isEmpty() && settings.ignoredTermsRaw.isNotEmpty()) {
             ignoredTermsText = settings.ignoredTermsRaw
         }
     }
+    LaunchedEffect(settings.geminiApiKey) {
+        if (geminiApiKeyText.isEmpty() && settings.geminiApiKey.isNotEmpty()) {
+            geminiApiKeyText = settings.geminiApiKey
+        }
+    }
 
     // Debounce saving glossary text
-    androidx.compose.runtime.LaunchedEffect(glossaryText) {
+    LaunchedEffect(glossaryText) {
         if (glossaryText != settings.glossaryRaw) {
-            kotlinx.coroutines.delay(500)
+            delay(500)
             onGlossaryChanged(glossaryText)
         }
     }
 
     // Debounce saving ignored terms
-    androidx.compose.runtime.LaunchedEffect(ignoredTermsText) {
+    LaunchedEffect(ignoredTermsText) {
         if (ignoredTermsText != settings.ignoredTermsRaw) {
-            kotlinx.coroutines.delay(500)
+            delay(500)
             onIgnoredTermsChanged(ignoredTermsText)
         }
     }
 
+    // Debounce saving Gemini API key
+    LaunchedEffect(geminiApiKeyText) {
+        if (geminiApiKeyText != settings.geminiApiKey) {
+            delay(500)
+            onGeminiApiKeyChanged(geminiApiKeyText)
+        }
+    }
+
     // Flush any pending unsaved text edits immediately when leaving SettingsScreen
-    androidx.compose.runtime.DisposableEffect(Unit) {
+    DisposableEffect(Unit) {
         onDispose {
             if (glossaryText != settings.glossaryRaw) {
                 onGlossaryChanged(glossaryText)
             }
             if (ignoredTermsText != settings.ignoredTermsRaw) {
                 onIgnoredTermsChanged(ignoredTermsText)
+            }
+            if (geminiApiKeyText != settings.geminiApiKey) {
+                onGeminiApiKeyChanged(geminiApiKeyText)
             }
         }
     }
@@ -125,26 +160,139 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Engines Info Card
+            // Motor de Tradução e IA Card (Destaque Principal)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                 )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Motores de Processamento", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Motor de Tradução (Sem Limitações)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        text = "• OCR: Google ML Kit Text Recognition v2 (On-device)\n• Tradutor: Google ML Kit On-device Translate (Offline)",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "Escolha o motor de tradução. O Gemini IA traduz qualquer gíria, frase coloquial e diálogo em inglês com máxima naturalidade.",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    // Seletor: Gemini vs ML Kit
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTranslationEngineChanged("gemini") },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = settings.translationEngine == "gemini",
+                                onClick = { onTranslationEngineChanged("gemini") }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(
+                                    text = "Google Gemini IA (Alta Precisão)",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Tradução sem limites de gírias e contexto. Requer internet e API Key gratuita.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTranslationEngineChanged("mlkit") },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = settings.translationEngine == "mlkit",
+                                onClick = { onTranslationEngineChanged("mlkit") }
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(
+                                    text = "Google ML Kit (Offline / Básico)",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "100% offline no celular, porém com vocabulário mais literal e limitado.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Campo da Chave de API do Gemini
+                    AnimatedVisibility(visible = settings.translationEngine == "gemini") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Chave da API do Google Gemini (Google AI Studio):",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            OutlinedTextField(
+                                value = geminiApiKeyText,
+                                onValueChange = { geminiApiKeyText = it },
+                                placeholder = { Text("Ex: AIzaSy...") },
+                                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showApiKey = !showApiKey }) {
+                                        Icon(
+                                            imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = if (showApiKey) "Ocultar" else "Exibir"
+                                        )
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("gemini_api_key_input")
+                            )
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "• Gratuita: Crie sua chave no Google AI Studio (aistudio.google.com)\n• Protegida: O app salva sua chave somente localmente no aparelho.\n• Fallback Seguro: Se a internet oscilar ou a chave falhar, o app usa o ML Kit offline automaticamente.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -290,10 +438,10 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Glossário & Termos Personalizados", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(text = "Glossário & Regras de Vocabulário", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
                     Text(
-                        text = "Insira termos um por linha no formato: termoOriginal -> termoTraduzido. Deixe o destino vazio para manter o termo original.",
+                        text = "Insira termos um por linha no formato: termoOriginal -> termoTraduzido. Deixe o destino vazio para manter o termo original. Funciona tanto com Gemini quanto com ML Kit.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -302,7 +450,7 @@ fun SettingsScreen(
                         onValueChange = {
                             glossaryText = it
                         },
-                        placeholder = { Text("Ex: Fireball -> Bola de Fogo\nHP -> Pontos de Vida") },
+                        placeholder = { Text("Ex: Fireball -> Bola de Fogo\nHP -> HP") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(110.dp)

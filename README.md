@@ -4,7 +4,13 @@
 
 # SubTranslate
 
-Aplicativo Android para extrair legendas de vídeos com OCR e traduzi-las usando os modelos locais do ML Kit.
+Aplicativo Android para extrair legendas de vídeos com OCR e traduzi-las com alta precisão usando o **Google Gemini IA** (sem limitações de gírias e contexto) ou modelos locais offline do **ML Kit**.
+
+## Motores de Tradução Híbridos
+
+- **Google Gemini IA (Recomendado):** Traduz qualquer diálogo em inglês sem limitações, adaptando gírias, expressões idiomáticas (*phrasal verbs*) e linguagem coloquial com naturalidade em português brasileiro. Basta informar sua chave gratuita do Google AI Studio nas Configurações.
+- **Fallback Automático & Modo Offline:** Se a internet oscilar ou nenhuma chave for informada, o app faz fallback transparente e instantâneo para os modelos locais do **Google ML Kit Translate**.
+- **Regras de Vocabulário & Glossário:** Suporta dicionário de termos personalizados e termos que não devem ser traduzidos, respeitados tanto pela IA quanto pelo motor offline.
 
 ## Run Locally
 
@@ -13,8 +19,6 @@ Aplicativo Android para extrair legendas de vídeos com OCR e traduzi-las usando
 1. Clone the repository and open its root directory in Android Studio.
 2. Allow Gradle to sync and install any requested Android SDK components.
 3. Run the `app` configuration on an emulator or physical device.
-
-OCR and translation run on-device with ML Kit; no Gemini API key or `.env` file is required. The initial translation may require an internet connection to download language models.
 
 For videos with small or visually varied captions, the extractor can retry short or empty OCR results with contrast-enhanced and black-and-white versions of the frame. If the selected subtitle region contains no text, it also checks the full frame. Automatic region detection samples the video at multiple points and includes text found at different horizontal and vertical positions; increase the sampling FPS to better catch brief captions, at the cost of processing time.
 

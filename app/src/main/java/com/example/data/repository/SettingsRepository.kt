@@ -30,6 +30,9 @@ class SettingsRepository(private val context: Context) {
         val GLOSSARY_RAW = stringPreferencesKey("glossary_raw")
         val FILTER_WATERMARKS = booleanPreferencesKey("filter_watermarks")
         val IGNORED_TERMS_RAW = stringPreferencesKey("ignored_terms_raw")
+        val TRANSLATION_ENGINE = stringPreferencesKey("translation_engine")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val GEMINI_MODEL = stringPreferencesKey("gemini_model")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -51,7 +54,10 @@ class SettingsRepository(private val context: Context) {
             glossaryTerms = glossaryMap,
             filterWatermarks = prefs[Keys.FILTER_WATERMARKS] ?: true,
             ignoredTermsRaw = ignoredTermsString,
-            ignoredTerms = parsedIgnoredTerms
+            ignoredTerms = parsedIgnoredTerms,
+            translationEngine = prefs[Keys.TRANSLATION_ENGINE] ?: "gemini",
+            geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
+            geminiModel = prefs[Keys.GEMINI_MODEL] ?: "gemini-2.5-flash"
         )
     }
 
@@ -89,6 +95,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun updateSimilarityThreshold(threshold: Float) {
         context.settingsDataStore.edit { it[Keys.SIMILARITY_THRESHOLD] = threshold.coerceIn(0.50f, 0.98f) }
+    }
+
+    suspend fun updateTranslationEngine(engine: String) {
+        context.settingsDataStore.edit { it[Keys.TRANSLATION_ENGINE] = engine }
+    }
+
+    suspend fun updateGeminiApiKey(apiKey: String) {
+        context.settingsDataStore.edit { it[Keys.GEMINI_API_KEY] = apiKey.trim() }
+    }
+
+    suspend fun updateGeminiModel(model: String) {
+        context.settingsDataStore.edit { it[Keys.GEMINI_MODEL] = model.trim() }
     }
 
     companion object {

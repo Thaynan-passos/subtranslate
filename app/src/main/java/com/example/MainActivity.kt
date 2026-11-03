@@ -321,6 +321,15 @@ class MainActivity : ComponentActivity() {
                                 onIgnoredTermsChanged = {
                                     scope.launch { container.settingsRepository.updateIgnoredTerms(it) }
                                 },
+                                onTranslationEngineChanged = {
+                                    scope.launch { container.settingsRepository.updateTranslationEngine(it) }
+                                },
+                                onGeminiApiKeyChanged = {
+                                    scope.launch { container.settingsRepository.updateGeminiApiKey(it) }
+                                },
+                                onGeminiModelChanged = {
+                                    scope.launch { container.settingsRepository.updateGeminiModel(it) }
+                                },
                                 onBackClick = { navigateBack() }
                             )
                         }
