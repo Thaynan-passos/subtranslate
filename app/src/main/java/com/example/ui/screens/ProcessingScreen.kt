@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.pipeline.PipelineState
+import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
 
@@ -219,7 +220,11 @@ fun ProcessingScreen(
                             isActive = pipelineState.progress in 0.60f..0.70f
                         )
                         PipelineStepRow(
-                            label = stringResource(R.string.step_translation),
+                            label = if (project?.outputMode == OutputMode.EXTRACT_ONLY) {
+                                "4. Preparação do texto para tradução manual"
+                            } else {
+                                stringResource(R.string.step_translation)
+                            },
                             isCompleted = pipelineState.progress >= 0.95f,
                             isActive = pipelineState.progress in 0.70f..0.95f
                         )
@@ -277,7 +282,11 @@ fun ProcessingScreen(
                         Icon(Icons.Default.Edit, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Abrir Editor e Revisão",
+                            text = if (project?.outputMode == OutputMode.EXTRACT_ONLY) {
+                                "Gerar Arquivo para Tradução"
+                            } else {
+                                "Abrir Editor e Revisão"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )

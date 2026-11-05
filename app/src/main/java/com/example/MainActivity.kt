@@ -29,15 +29,18 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.domain.model.AppSettings
+import com.example.domain.model.OutputMode
 import com.example.domain.model.ProjectStatus
 import com.example.data.service.SubtitleExtractionService
 import com.example.ui.screens.ExportScreen
+import com.example.ui.screens.ManualTranslationScreen
 import com.example.ui.screens.ProcessingScreen
 import com.example.ui.screens.ProjectConfigScreen
 import com.example.ui.screens.ProjectListScreen
 import com.example.ui.screens.ReviewEditorScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.viewmodel.ManualTranslationViewModel
 import com.example.ui.viewmodel.ProcessingViewModel
 import com.example.ui.viewmodel.ProjectConfigViewModel
 import com.example.ui.viewmodel.ProjectViewModel
@@ -110,14 +113,25 @@ class MainActivity : ComponentActivity() {
 
                     val scope = rememberCoroutineScope()
 
+                    // Selected home tab: automatic translation or text extraction (manual translation)
+                    var homeMode by rememberSaveable { mutableStateOf(OutputMode.SRT_ONLY.name) }
+
                     when {
                         currentRoute == "projects" -> {
                             ProjectListScreen(
                                 projects = projects,
-                                onNewProjectClick = { navigateTo("config") },
+                                selectedMode = OutputMode.valueOf(homeMode),
+                                onModeSelected = { homeMode = it.name },
+                                onNewProjectClick = {
+                                    navigateTo(if (homeMode == OutputMode.EXTRACT_ONLY.name) "config_extract" else "config")
+                                },
                                 onProjectClick = { project ->
                                     if (project.status == ProjectStatus.COMPLETED) {
-                                        navigateTo("editor/${project.id}")
+                                        if (project.outputMode == OutputMode.EXTRACT_ONLY) {
+                                            navigateTo("manual/${project.id}")
+                                        } else {
+                                            navigateTo("editor/${project.id}")
+                                        }
                                     } else {
                                         navigateTo("processing/${project.id}")
                                     }
@@ -127,7 +141,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        currentRoute == "config" -> {
+                        currentRoute == "config" || currentRoute == "config_extract" -> {
                             BackHandler { navigateBack() }
 
                             val configSessionId = rememberSaveable { java.util.UUID.randomUUID().toString() }
@@ -144,6 +158,17 @@ class MainActivity : ComponentActivity() {
                             }
                             val uiState by configViewModel.uiState.collectAsState()
                             var initializedDefaultFps by rememberSaveable(configSessionId) { mutableStateOf(false) }
+                            var initializedMode by rememberSaveable(configSessionId) { mutableStateOf(false) }
+
+                            // Pre-select the mode matching the tab the user came from
+                            LaunchedEffect(currentRoute) {
+                                if (!initializedMode) {
+                                    configViewModel.setOutputMode(
+                                        if (currentRoute == "config_extract") OutputMode.EXTRACT_ONLY else OutputMode.SRT_ONLY
+                                    )
+                                    initializedMode = true
+                                }
+                            }
 
                             // Initialize default FPS from settings
                             LaunchedEffect(settings.defaultFps) {
@@ -216,7 +241,11 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onGoToEditorClick = {
                                     backStack.removeAt(backStack.lastIndex)
-                                    navigateTo("editor/$projId")
+                                    if (currentProject?.outputMode == OutputMode.EXTRACT_ONLY) {
+                                        navigateTo("manual/$projId")
+                                    } else {
+                                        navigateTo("editor/$projId")
+                                    }
                                 },
                                 onRetryClick = {
                                     processingViewModel.startProcessing(settings)
@@ -271,6 +300,42 @@ class MainActivity : ComponentActivity() {
                                     backStack.add("projects")
                                 },
                                 onRequestTranslateOnline = { text -> editorViewModel.translateTextOnline(text) }
+                            )
+                        }
+
+                        currentRoute.startsWith("manual/") -> {
+                            val projId = currentRoute.substringAfter("manual/").toLongOrNull() ?: 0L
+                            BackHandler {
+                                backStack.clear()
+                                backStack.add("projects")
+                            }
+
+                            val manualViewModel: ManualTranslationViewModel = viewModel(
+                                key = "manual_$projId",
+                                factory = ManualTranslationViewModel.Factory(
+                                    projectId = projId,
+                                    projectRepository = container.projectRepository,
+                                    subtitleRepository = container.subtitleRepository
+                                )
+                            )
+                            val currentProject by manualViewModel.project.collectAsState()
+                            val lines by manualViewModel.subtitleLines.collectAsState()
+                            val manualUiState by manualViewModel.uiState.collectAsState()
+
+                            ManualTranslationScreen(
+                                project = currentProject,
+                                subtitleLines = lines,
+                                uiState = manualUiState,
+                                buildExportContent = { manualViewModel.buildExportContent() },
+                                onImportContent = { manualViewModel.importTranslation(it) },
+                                onShowMessage = { manualViewModel.showMessage(it) },
+                                onClearUserMessage = { manualViewModel.clearUserMessage() },
+                                onOpenEditorClick = { navigateTo("editor/$projId") },
+                                onExportSubtitlesClick = { navigateTo("export/$projId") },
+                                onBackClick = {
+                                    backStack.clear()
+                                    backStack.add("projects")
+                                }
                             )
                         }
 

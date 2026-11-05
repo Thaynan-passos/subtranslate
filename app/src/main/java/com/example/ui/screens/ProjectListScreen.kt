@@ -21,10 +21,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +36,8 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
 import java.text.SimpleDateFormat
@@ -62,8 +67,13 @@ fun ProjectListScreen(
     onNewProjectClick: () -> Unit,
     onProjectClick: (Project) -> Unit,
     onSettingsClick: () -> Unit,
-    onDeleteProject: (Long) -> Unit
+    onDeleteProject: (Long) -> Unit,
+    selectedMode: OutputMode = OutputMode.SRT_ONLY,
+    onModeSelected: (OutputMode) -> Unit = {}
 ) {
+    val isExtractMode = selectedMode == OutputMode.EXTRACT_ONLY
+    val visibleProjects = projects.filter { it.outputMode == selectedMode }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -97,20 +107,39 @@ fun ProjectListScreen(
                 )
             )
         },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = !isExtractMode,
+                    onClick = { onModeSelected(OutputMode.SRT_ONLY) },
+                    icon = { Icon(Icons.Default.Translate, contentDescription = null) },
+                    label = { Text("Tradução Automática") },
+                    modifier = Modifier.testTag("tab_auto_translate")
+                )
+                NavigationBarItem(
+                    selected = isExtractMode,
+                    onClick = { onModeSelected(OutputMode.EXTRACT_ONLY) },
+                    icon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) },
+                    label = { Text("Extrair Texto") },
+                    modifier = Modifier.testTag("tab_extract_text")
+                )
+            }
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNewProjectClick,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text(stringResource(R.string.btn_new_project)) },
+                text = { Text(if (isExtractMode) "Extrair Texto" else stringResource(R.string.btn_new_project)) },
                 modifier = Modifier.testTag("new_project_fab")
             )
         }
     ) { paddingValues ->
-        if (projects.isEmpty()) {
+        if (visibleProjects.isEmpty()) {
             EmptyProjectsView(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
+                isExtractMode = isExtractMode,
                 onNewProjectClick = onNewProjectClick
             )
         } else {
@@ -121,7 +150,7 @@ fun ProjectListScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(projects, key = { it.id }) { project ->
+                items(visibleProjects, key = { it.id }) { project ->
                     ProjectItemCard(
                         project = project,
                         onClick = { onProjectClick(project) },
@@ -136,6 +165,7 @@ fun ProjectListScreen(
 @Composable
 private fun EmptyProjectsView(
     modifier: Modifier = Modifier,
+    isExtractMode: Boolean = false,
     onNewProjectClick: () -> Unit
 ) {
     Box(
@@ -153,7 +183,7 @@ private fun EmptyProjectsView(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Default.Movie,
+                        imageVector = if (isExtractMode) Icons.Default.DocumentScanner else Icons.Default.Movie,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(48.dp)
@@ -162,13 +192,18 @@ private fun EmptyProjectsView(
             }
             Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = stringResource(R.string.title_empty_projects),
+                text = if (isExtractMode) "Nenhum texto extraído ainda" else stringResource(R.string.title_empty_projects),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = stringResource(R.string.desc_empty_projects),
+                text = if (isExtractMode) {
+                    "Extraia o texto das legendas do vídeo, gere um arquivo editável, traduza as frases " +
+                            "no seu idioma e importe o arquivo de volta para gerar a legenda."
+                } else {
+                    stringResource(R.string.desc_empty_projects)
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

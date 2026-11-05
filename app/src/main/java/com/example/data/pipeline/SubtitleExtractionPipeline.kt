@@ -12,6 +12,7 @@ import com.example.data.util.NotificationHelper
 import com.example.domain.engine.OcrEngine
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
+import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
 import com.example.domain.model.RawFrameDetection
@@ -117,9 +118,12 @@ class SubtitleExtractionPipeline(
             cancelledProjects.remove(project.id)
             pausedProjects.remove(project.id)
 
+            // In extract-only mode the user translates the text manually, so no translator is needed.
+            val extractOnly = project.outputMode == OutputMode.EXTRACT_ONLY
+
             updateState(project.id) {
                 PipelineState(
-                    step = "Verificando modelo de tradução offline...",
+                    step = if (extractOnly) "Preparando extração de texto..." else "Verificando modelo de tradução offline...",
                     progress = 0.02f,
                     isRunning = true,
                     totalDurationMs = project.durationMs
@@ -129,9 +133,9 @@ class SubtitleExtractionPipeline(
                 project.id,
                 ProjectStatus.PROCESSING.name,
                 0.02f,
-                "Verificando modelo de tradução"
+                if (extractOnly) "Preparando extração" else "Verificando modelo de tradução"
             )
-            val downloadSuccess = try {
+            val downloadSuccess = if (extractOnly) true else try {
                 translator.downloadModelIfNeeded(
                     sourceLanguage = project.sourceLanguage,
                     targetLanguage = project.targetLanguage,
@@ -374,11 +378,20 @@ class SubtitleExtractionPipeline(
                 // Step 4: Batch Translation with Checkpoints
                 updateState(project.id) {
                     it.copy(
-                        step = "Traduzindo falas para ${project.targetLanguage.uppercase()}...",
+                        step = if (extractOnly) {
+                            "Preparando texto para tradução manual..."
+                        } else {
+                            "Traduzindo falas para ${project.targetLanguage.uppercase()}..."
+                        },
                         progress = 0.75f
                     )
                 }
-                projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.75f, "Tradução")
+                projectRepository.updateProgress(
+                    project.id,
+                    ProjectStatus.PROCESSING.name,
+                    0.75f,
+                    if (extractOnly) "Organizando texto" else "Tradução"
+                )
 
                 val finalLines = mutableListOf<SubtitleLine>()
                 val batchToSave = mutableListOf<SubtitleLine>()
@@ -417,7 +430,10 @@ class SubtitleExtractionPipeline(
                     var translatedText = ""
                     var isLineFlagged = line.isFlagged
 
-                    try {
+                    if (extractOnly) {
+                        // Leave the translation empty: it will be filled by the user's imported file.
+                        translatedText = ""
+                    } else try {
                         val coherentSourceText = sanitizedOriginalText
                             .replace("\r\n", " ")
                             .replace("\n", " ")
@@ -465,9 +481,14 @@ class SubtitleExtractionPipeline(
                             project.id,
                             ProjectStatus.PROCESSING.name,
                             transProgress,
-                            "Traduzido ${idx + 1}/$totalLines"
+                            if (extractOnly) "Organizado ${idx + 1}/$totalLines" else "Traduzido ${idx + 1}/$totalLines"
                         )
-                        NotificationHelper.updateProgressNotification(context, project.title, "Traduzindo ${idx + 1}/$totalLines", (transProgress * 100).toInt())
+                        NotificationHelper.updateProgressNotification(
+                            context,
+                            project.title,
+                            if (extractOnly) "Organizando ${idx + 1}/$totalLines" else "Traduzindo ${idx + 1}/$totalLines",
+                            (transProgress * 100).toInt()
+                        )
                     }
                 }
 

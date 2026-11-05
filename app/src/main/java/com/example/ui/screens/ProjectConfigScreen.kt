@@ -127,7 +127,16 @@ fun ProjectConfigScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.title_project_config), fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        text = if (uiState.outputMode == OutputMode.EXTRACT_ONLY) {
+                            "Extrair Texto do Vídeo"
+                        } else {
+                            stringResource(R.string.title_project_config)
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
@@ -346,14 +355,28 @@ fun ProjectConfigScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(10.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { onOutputModeChanged(OutputMode.SRT_ONLY) },
-                        label = { Text("Exportação de Legendas (.SRT / .VTT)") }
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = uiState.outputMode == OutputMode.SRT_ONLY,
+                            onClick = { onOutputModeChanged(OutputMode.SRT_ONLY) },
+                            label = { Text("Tradução automática") },
+                            modifier = Modifier.testTag("mode_auto_chip")
+                        )
+                        FilterChip(
+                            selected = uiState.outputMode == OutputMode.EXTRACT_ONLY,
+                            onClick = { onOutputModeChanged(OutputMode.EXTRACT_ONLY) },
+                            label = { Text("Só extrair texto") },
+                            modifier = Modifier.testTag("mode_extract_chip")
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "O Modo B (substituição visual da legenda com faixa opaca) é somente um preview no editor; não gera um vídeo exportado. Para usar em outros players, exporte as legendas .SRT ou .VTT.",
+                        text = if (uiState.outputMode == OutputMode.EXTRACT_ONLY) {
+                            "Apenas extrai o texto do vídeo, sem tradução automática. Você poderá salvar um arquivo .TXT editável, " +
+                                    "traduzir as frases para o seu idioma e importar o arquivo de volta para gerar a legenda .SRT / .VTT."
+                        } else {
+                            "Extrai e traduz automaticamente (Gemini online ou ML Kit offline). O Modo B (substituição visual da legenda com faixa opaca) é somente um preview no editor; não gera um vídeo exportado. Para usar em outros players, exporte as legendas .SRT ou .VTT."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -396,7 +419,11 @@ fun ProjectConfigScreen(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (uiState.isCreatingProject) "Criando projeto..." else stringResource(R.string.btn_start_processing),
+                    text = when {
+                        uiState.isCreatingProject -> "Criando projeto..."
+                        uiState.outputMode == OutputMode.EXTRACT_ONLY -> "Extrair Texto"
+                        else -> stringResource(R.string.btn_start_processing)
+                    },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

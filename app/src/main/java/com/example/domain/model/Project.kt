@@ -11,7 +11,14 @@ enum class ProjectStatus {
 }
 
 enum class OutputMode {
-    SRT_ONLY
+    /** Extrai o texto via OCR e traduz automaticamente (Gemini / ML Kit). */
+    SRT_ONLY,
+
+    /**
+     * Apenas extrai o texto via OCR (sem tradução automática). O usuário exporta um
+     * arquivo editável, traduz as frases por conta própria e importa o arquivo de volta.
+     */
+    EXTRACT_ONLY
 }
 
 data class RegionOfInterest(
