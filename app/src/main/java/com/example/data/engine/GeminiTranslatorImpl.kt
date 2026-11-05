@@ -3,6 +3,7 @@ package com.example.data.engine
 import com.example.data.repository.SubtitleRepository
 import com.example.domain.engine.Translator
 import com.example.domain.util.BuiltInGlossary
+import com.example.domain.util.OcrTextSanitizer
 import com.example.domain.util.UniversalSpeechHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,11 +53,12 @@ class GeminiTranslatorImpl(
             return text
         }
 
+        val sanitizedText = OcrTextSanitizer.sanitize(text, sourceLanguage)
         val effectiveGlossary = BuiltInGlossary.forPair(sourceLanguage, targetLanguage) + glossary
 
-        // Consulta cache local do Room primeiro
+        // Consulta cache local do Room primeiro (traduções salvas do usuário têm prioridade máxima)
         if (!bypassCache) {
-            val cached = repository.getCachedTranslation(text, sourceLanguage, targetLanguage, cacheEngine)
+            val cached = repository.getBestCachedTranslation(sanitizedText, sourceLanguage, targetLanguage)
             if (cached != null) {
                 return MlKitTranslatorImpl.applyGlossary(cached, effectiveGlossary)
             }
@@ -73,7 +75,7 @@ class GeminiTranslatorImpl(
             callGeminiApi(
                 apiKey = apiKey,
                 model = model,
-                text = text,
+                text = sanitizedText,
                 sourceLanguage = sourceLanguage,
                 targetLanguage = targetLanguage,
                 glossary = effectiveGlossary
@@ -82,7 +84,7 @@ class GeminiTranslatorImpl(
 
         // Armazena no cache local para economizar requisições futuras
         if (translated.isNotBlank()) {
-            repository.cacheTranslation(text, sourceLanguage, targetLanguage, cacheEngine, translated)
+            repository.cacheTranslation(sanitizedText, sourceLanguage, targetLanguage, cacheEngine, translated)
         }
 
         return MlKitTranslatorImpl.applyGlossary(translated, effectiveGlossary)
@@ -142,6 +144,7 @@ class GeminiTranslatorImpl(
         sb.append("Você é um tradutor especialista de legendas para vídeos, séries, animes e filmes.\n")
         sb.append("Traduza o texto de '$sourceLanguage' para '$targetLanguage' com máxima naturalidade e fluência coloquial em português.\n")
         sb.append("Adapte gírias, expressões idiomáticas (idioms), contrações e phrasal verbs sem traduções literais artificiais.\n")
+        sb.append("Aviso de OCR: O texto de entrada foi extraído via OCR de vídeo e pode conter ruídos visuais típicos (ex: apóstrofos sobrando ou faltantes como 'you\\'d\\'', confusões de caracteres como 'mayra you\\'d' em vez de 'maybe you\\'d', junção de letras). Reconstrua contextualmente o diálogo original e traduza com precisão.\n")
         sb.append("NUNCA adicione notas explicativas, aspas desnecessárias, prefixos ou comentários. Retorne EXCLUSIVAMENTE a fala traduzida final.\n")
 
         if (glossary.isNotEmpty()) {
@@ -201,4 +204,3 @@ class GeminiTranslatorImpl(
         // Sem recursos persistentes a fechar
     }
 }
-

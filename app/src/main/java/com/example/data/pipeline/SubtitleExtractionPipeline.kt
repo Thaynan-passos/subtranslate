@@ -17,6 +17,7 @@ import com.example.domain.model.ProjectStatus
 import com.example.domain.model.RawFrameDetection
 import com.example.domain.model.SubtitleLine
 import com.example.domain.util.ImagePreprocessor
+import com.example.domain.util.OcrTextSanitizer
 import com.example.domain.util.TemporalSpeechGrouper
 import com.example.domain.util.WatermarkFilter
 import kotlinx.coroutines.CancellationException
@@ -281,6 +282,7 @@ class SubtitleExtractionPipeline(
                                     } else {
                                         ocrText
                                     }
+                                    detectedText = OcrTextSanitizer.sanitize(detectedText, project.sourceLanguage)
                                     detectedConfidence = ocrRes?.confidence ?: 0f
 
                                     lastThumb = currentThumb
@@ -406,11 +408,17 @@ class SubtitleExtractionPipeline(
                         continue
                     }
 
+                    // Sanitiza o texto original para eliminar ruídos visuais de OCR e apóstrofos espúrios
+                    val sanitizedOriginalText = OcrTextSanitizer.sanitize(
+                        text = cleanedOriginalText,
+                        sourceLanguage = project.sourceLanguage
+                    )
+
                     var translatedText = ""
                     var isLineFlagged = line.isFlagged
 
                     try {
-                        val coherentSourceText = cleanedOriginalText
+                        val coherentSourceText = sanitizedOriginalText
                             .replace("\r\n", " ")
                             .replace("\n", " ")
                             .replace(Regex("\\s+"), " ")
@@ -427,14 +435,14 @@ class SubtitleExtractionPipeline(
                         throw e
                     } catch (e: Exception) {
                         // Translation failed: flag line and retain original text
-                        translatedText = cleanedOriginalText
+                        translatedText = sanitizedOriginalText
                         isLineFlagged = true
                         failedCount++
                     }
 
                     val translatedLine = line.copy(
                         index = finalLines.size + 1,
-                        originalText = cleanedOriginalText,
+                        originalText = sanitizedOriginalText,
                         translatedText = translatedText,
                         isFlagged = isLineFlagged
                     )

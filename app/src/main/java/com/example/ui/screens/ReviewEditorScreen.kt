@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.CallSplit
 import androidx.compose.material.icons.filled.Delete
@@ -43,6 +44,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +94,7 @@ import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
 import com.example.ui.viewmodel.ReviewEditorUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -109,7 +114,8 @@ fun ReviewEditorScreen(
     onAddLine: (Long) -> Unit,
     onClearUserMessage: () -> Unit,
     onExportClick: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onRequestTranslateOnline: (suspend (String) -> Result<String>)? = null
 ) {
     val context = LocalContext.current
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
@@ -394,8 +400,9 @@ fun ReviewEditorScreen(
         EditSubtitleDialog(
             line = editingLine!!,
             videoDurationMs = project?.durationMs ?: Long.MAX_VALUE,
+            onRequestTranslateOnline = onRequestTranslateOnline,
             onDismiss = { editingLine = null },
-            onSave = { updatedOrig, updatedTrans, startMs, endMs ->
+            onSave = { updatedOrig, updatedTrans, startMs, endMs, _ ->
                 onUpdateLineText(editingLine!!.id, updatedOrig, updatedTrans)
                 onUpdateLineTimestamps(editingLine!!.id, startMs, endMs)
                 editingLine = null
@@ -567,13 +574,18 @@ fun SubtitleLineCard(
 fun EditSubtitleDialog(
     line: SubtitleLine,
     videoDurationMs: Long,
+    onRequestTranslateOnline: (suspend (String) -> Result<String>)? = null,
     onDismiss: () -> Unit,
-    onSave: (String, String, Long, Long) -> Unit
+    onSave: (String, String, Long, Long, Boolean) -> Unit
 ) {
     var original by remember(line.id) { mutableStateOf(line.originalText) }
     var translated by remember(line.id) { mutableStateOf(line.translatedText) }
     var startSec by remember(line.id) { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.startTimeMs / 1000f)) }
     var endSec by remember(line.id) { mutableStateOf(String.format(java.util.Locale.US, "%.2f", line.endTimeMs / 1000f)) }
+    var saveToMemory by remember(line.id) { mutableStateOf(true) }
+    var isTranslatingOnline by remember { mutableStateOf(false) }
+    var onlineError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -581,19 +593,85 @@ fun EditSubtitleDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
+                    value = original,
+                    onValueChange = {
+                        original = it
+                        onlineError = null
+                    },
+                    label = { Text("Texto Original (OCR)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (onRequestTranslateOnline != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    isTranslatingOnline = true
+                                    onlineError = null
+                                    val res = onRequestTranslateOnline(original)
+                                    if (res.isSuccess) {
+                                        translated = res.getOrThrow()
+                                    } else {
+                                        onlineError = res.exceptionOrNull()?.localizedMessage ?: "Erro na tradução online"
+                                    }
+                                    isTranslatingOnline = false
+                                }
+                            },
+                            enabled = !isTranslatingOnline && original.isNotBlank()
+                        ) {
+                            if (isTranslatingOnline) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Traduzindo online...")
+                            } else {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Traduzir Online (IA)")
+                            }
+                        }
+                    }
+                }
+
+                if (onlineError != null) {
+                    Text(
+                        text = onlineError!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                OutlinedTextField(
                     value = translated,
                     onValueChange = { translated = it },
-                    label = { Text("Texto Traduzido") },
+                    label = { Text("Texto Traduzido (Correto)") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("edit_translated_text_input")
                 )
-                OutlinedTextField(
-                    value = original,
-                    onValueChange = { original = it },
-                    label = { Text("Texto Original (OCR)") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { saveToMemory = !saveToMemory },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = saveToMemory,
+                        onCheckedChange = { saveToMemory = it }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Salvar na memória local (lembrar contexto)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = startSec,
@@ -624,7 +702,7 @@ fun EditSubtitleDialog(
                         .coerceAtLeast(minimumEnd)
                         .coerceAtMost(maxEnd)
 
-                    onSave(original, translated, startMs, endMs)
+                    onSave(original, translated, startMs, endMs, saveToMemory)
                 },
                 modifier = Modifier.testTag("save_edit_button")
             ) {
@@ -636,5 +714,21 @@ fun EditSubtitleDialog(
                 Text("Cancelar")
             }
         }
+    )
+}
+
+@Composable
+fun EditSubtitleDialog(
+    line: SubtitleLine,
+    videoDurationMs: Long,
+    onDismiss: () -> Unit,
+    onSave: (String, String, Long, Long) -> Unit
+) {
+    EditSubtitleDialog(
+        line = line,
+        videoDurationMs = videoDurationMs,
+        onRequestTranslateOnline = null,
+        onDismiss = onDismiss,
+        onSave = { orig, trans, start, end, _ -> onSave(orig, trans, start, end) }
     )
 }

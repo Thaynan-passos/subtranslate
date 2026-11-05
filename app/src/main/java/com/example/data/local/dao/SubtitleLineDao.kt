@@ -55,9 +55,20 @@ interface SubtitleLineDao {
 @Dao
 interface TranslationCacheDao {
 
+    @Query("""
+        SELECT translatedText FROM translation_cache 
+        WHERE sourceText = :text AND sourceLang = :sourceLang AND targetLang = :targetLang 
+        ORDER BY CASE WHEN engine = 'user' THEN 0 ELSE 1 END, timestamp DESC 
+        LIMIT 1
+    """)
+    suspend fun getBestCachedTranslation(text: String, sourceLang: String, targetLang: String): String?
+
     @Query("SELECT translatedText FROM translation_cache WHERE sourceText = :text AND sourceLang = :sourceLang AND targetLang = :targetLang AND engine = :engine LIMIT 1")
     suspend fun getCachedTranslation(text: String, sourceLang: String, targetLang: String, engine: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCache(cache: TranslationCacheEntity)
+
+    @Query("DELETE FROM translation_cache WHERE sourceText = :text AND sourceLang = :sourceLang AND targetLang = :targetLang")
+    suspend fun deleteCache(text: String, sourceLang: String, targetLang: String)
 }

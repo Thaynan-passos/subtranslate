@@ -4,6 +4,7 @@ import com.example.data.repository.SubtitleRepository
 import com.example.domain.engine.Translator
 import com.example.domain.util.BuiltInGlossary
 import com.example.domain.util.LanguageHelper
+import com.example.domain.util.OcrTextSanitizer
 import com.example.domain.util.UniversalSpeechHelper
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
@@ -120,18 +121,24 @@ class MlKitTranslatorImpl(
             return text
         }
 
+        // Sanitiza contrações quebradas e ruídos de OCR (ex: "mayra you'd'" -> "maybe you'd")
+        val sanitizedText = OcrTextSanitizer.sanitize(text, sourceLanguage)
+        if (UniversalSpeechHelper.isUniversalExpression(sanitizedText)) {
+            return sanitizedText
+        }
+
         // Biblioteca embutida + glossário do usuário (o do usuário tem prioridade).
         val effectiveGlossary = BuiltInGlossary.forPair(sourceLanguage, targetLanguage) + glossary
 
-        // Check local Room cache first if not bypassing
+        // Check local Room cache first if not bypassing (tradução do usuário tem prioridade máxima)
         if (!bypassCache) {
-            val cached = repository.getCachedTranslation(text, sourceLanguage, targetLanguage, cacheEngine)
+            val cached = repository.getBestCachedTranslation(sanitizedText, sourceLanguage, targetLanguage)
             if (cached != null) {
                 return applyGlossary(cached, effectiveGlossary)
             }
         }
 
-        val (preparedText, placeholders) = preparePlaceholders(text, effectiveGlossary)
+        val (preparedText, placeholders) = preparePlaceholders(sanitizedText, effectiveGlossary)
         val key = modelPairKey(sourceLanguage, targetLanguage)
         if (!downloadedModelPairs.contains(key) &&
             !downloadModelIfNeeded(sourceLanguage, targetLanguage, requireWifi = false, onProgress = {})
@@ -155,14 +162,14 @@ class MlKitTranslatorImpl(
         if (markersIntact) {
             val withoutGlossary = restoreSourceTerms(rawTranslatedWithPlaceholders, placeholders)
             if (withoutGlossary.isNotBlank()) {
-                repository.cacheTranslation(text, sourceLanguage, targetLanguage, cacheEngine, withoutGlossary)
+                repository.cacheTranslation(sanitizedText, sourceLanguage, targetLanguage, cacheEngine, withoutGlossary)
             }
             return restorePlaceholders(rawTranslatedWithPlaceholders, placeholders)
         }
 
         // A damaged marker must not leak into output or the translation cache.
         val fallback = suspendCancellableCoroutine<String> { continuation ->
-            getClient(sourceLanguage, targetLanguage).translate(text)
+            getClient(sourceLanguage, targetLanguage).translate(sanitizedText)
                 .addOnSuccessListener { result -> continuation.resume(result) }
                 .addOnFailureListener { ex -> continuation.resumeWithException(ex) }
         }

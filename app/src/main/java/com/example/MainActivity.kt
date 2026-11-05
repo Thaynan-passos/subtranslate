@@ -269,7 +269,8 @@ class MainActivity : ComponentActivity() {
                                 onBackClick = {
                                     backStack.clear()
                                     backStack.add("projects")
-                                }
+                                },
+                                onRequestTranslateOnline = { text -> editorViewModel.translateTextOnline(text) }
                             )
                         }
 

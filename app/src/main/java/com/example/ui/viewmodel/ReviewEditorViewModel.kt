@@ -10,6 +10,7 @@ import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
 import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
+import com.example.domain.util.OcrTextSanitizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -79,9 +80,54 @@ class ReviewEditorViewModel(
         _uiState.value = _uiState.value.copy(userMessage = null)
     }
 
-    fun updateLineText(lineId: Long, original: String, translated: String) {
+    fun updateLineText(
+        lineId: Long,
+        original: String,
+        translated: String,
+        saveToMemory: Boolean = true
+    ) {
+        val proj = project.value
+        val cleanOriginal = original.trim()
+        val cleanTranslated = translated.trim()
+
         viewModelScope.launch {
-            subtitleRepository.updateLineText(lineId, original.trim(), translated.trim())
+            subtitleRepository.updateLineText(lineId, cleanOriginal, cleanTranslated)
+
+            // Salva no banco de dados local a tradução corrigida do usuário com prioridade máxima
+            if (saveToMemory && proj != null && cleanOriginal.isNotBlank() && cleanTranslated.isNotBlank()) {
+                subtitleRepository.saveUserTranslationMemory(
+                    sourceText = cleanOriginal,
+                    translatedText = cleanTranslated,
+                    sourceLang = proj.sourceLanguage,
+                    targetLang = proj.targetLanguage
+                )
+            }
+        }
+    }
+
+    suspend fun translateTextOnline(text: String): Result<String> {
+        val proj = project.value ?: return Result.failure(IllegalStateException("Projeto não carregado"))
+        val cleanText = text.trim()
+        if (cleanText.isBlank()) return Result.success("")
+
+        return try {
+            val sanitized = OcrTextSanitizer.sanitize(cleanText, proj.sourceLanguage)
+            val coherent = sanitized
+                .replace("\r\n", " ")
+                .replace("\n", " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+
+            val result = translator.translate(
+                text = coherent,
+                sourceLanguage = proj.sourceLanguage,
+                targetLanguage = proj.targetLanguage,
+                glossary = settings.value.glossaryTerms,
+                bypassCache = true
+            )
+            Result.success(result)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -181,7 +227,8 @@ class ReviewEditorViewModel(
                 val current = lines.firstOrNull { it.id == lineId }
                 if (current != null) {
                     val currentSettings = settings.value
-                    val coherentSourceText = current.originalText
+                    val sanitized = OcrTextSanitizer.sanitize(current.originalText, proj.sourceLanguage)
+                    val coherentSourceText = sanitized
                         .replace("\r\n", " ")
                         .replace("\n", " ")
                         .replace(Regex("\\s+"), " ")
@@ -194,7 +241,11 @@ class ReviewEditorViewModel(
                         bypassCache = true
                     )
                     subtitleRepository.updateLine(
-                        current.copy(translatedText = newTranslation, isFlagged = false)
+                        current.copy(
+                            originalText = sanitized,
+                            translatedText = newTranslation,
+                            isFlagged = false
+                        )
                     )
                     _uiState.value = _uiState.value.copy(userMessage = "Fala retraduzida com sucesso!")
                 }

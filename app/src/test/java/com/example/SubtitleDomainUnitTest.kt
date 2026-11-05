@@ -665,13 +665,58 @@ class SubtitleDomainUnitTest {
         override suspend fun deleteLinesByProject(projectId: Long) = Unit
     }
 
+    @Test
+    fun testUserTranslationMemoryOverridesMachineTranslation() = kotlinx.coroutines.runBlocking {
+        val dao = FakeTranslationCacheDao()
+        val repo = SubtitleRepository(FakeSubtitleLineDao(), dao)
+
+        // Tradução de máquina armazenada anteriormente
+        repo.cacheTranslation("Maybe you'd", "en", "pt", "mlkit", "Pode ser que você")
+
+        // Usuário editou manualmente e salvou a tradução correta
+        repo.saveUserTranslationMemory("Maybe you'd", "Talvez você gostaria", "en", "pt")
+
+        // Consulta prioritária
+        val best = repo.getBestCachedTranslation("Maybe you'd", "en", "pt")
+        assertEquals("Talvez você gostaria", best)
+    }
+
     private class FakeTranslationCacheDao : TranslationCacheDao {
+        val cache = mutableListOf<TranslationCacheEntity>()
+
+        override suspend fun getBestCachedTranslation(
+            text: String,
+            sourceLang: String,
+            targetLang: String
+        ): String? {
+            return cache.filter { it.sourceText == text && it.sourceLang == sourceLang && it.targetLang == targetLang }
+                .sortedWith(compareBy<TranslationCacheEntity> { if (it.engine == "user") 0 else 1 }.thenByDescending { it.timestamp })
+                .firstOrNull()?.translatedText
+        }
+
         override suspend fun getCachedTranslation(
             text: String,
             sourceLang: String,
             targetLang: String,
             engine: String
-        ): String? = null
-        override suspend fun insertCache(cache: TranslationCacheEntity) = Unit
+        ): String? {
+            return cache.firstOrNull {
+                it.sourceText == text && it.sourceLang == sourceLang && it.targetLang == targetLang && it.engine == engine
+            }?.translatedText
+        }
+
+        override suspend fun insertCache(cache: TranslationCacheEntity) {
+            this.cache.removeAll {
+                it.sourceText == cache.sourceText && it.sourceLang == cache.sourceLang &&
+                        it.targetLang == cache.targetLang && it.engine == cache.engine
+            }
+            this.cache.add(cache)
+        }
+
+        override suspend fun deleteCache(text: String, sourceLang: String, targetLang: String) {
+            this.cache.removeAll {
+                it.sourceText == text && it.sourceLang == sourceLang && it.targetLang == targetLang
+            }
+        }
     }
 }

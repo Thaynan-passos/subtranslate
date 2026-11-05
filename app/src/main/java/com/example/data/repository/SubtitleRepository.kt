@@ -55,6 +55,14 @@ class SubtitleRepository(
         subtitleLineDao.deleteLinesByProject(projectId)
     }
 
+    suspend fun getBestCachedTranslation(
+        text: String,
+        sourceLang: String,
+        targetLang: String
+    ): String? {
+        return translationCacheDao.getBestCachedTranslation(text, sourceLang, targetLang)
+    }
+
     suspend fun getCachedTranslation(
         text: String,
         sourceLang: String,
@@ -77,7 +85,30 @@ class SubtitleRepository(
                 sourceLang = sourceLang,
                 targetLang = targetLang,
                 engine = engine,
-                translatedText = translatedText
+                translatedText = translatedText,
+                timestamp = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun saveUserTranslationMemory(
+        sourceText: String,
+        translatedText: String,
+        sourceLang: String,
+        targetLang: String
+    ) {
+        val cleanSource = sourceText.trim()
+        val cleanTarget = translatedText.trim()
+        if (cleanSource.isBlank() || cleanTarget.isBlank()) return
+
+        translationCacheDao.insertCache(
+            TranslationCacheEntity(
+                sourceText = cleanSource,
+                sourceLang = sourceLang,
+                targetLang = targetLang,
+                engine = "user",
+                translatedText = cleanTarget,
+                timestamp = System.currentTimeMillis()
             )
         )
     }
