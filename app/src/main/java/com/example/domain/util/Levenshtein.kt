@@ -64,8 +64,18 @@ object Levenshtein {
         val clean2 = cleanForComparison(s2)
 
         if (clean1 == clean2) return true
+        if (clean1.isEmpty() || clean2.isEmpty()) return false
+
+        // Se ambas as strings contêm números e os números são diferentes (ex: "Chapter 1" vs "Chapter 2"),
+        // são capítulos, índices ou valores distintos e não devem ser agrupados como a mesma fala.
+        val nums1 = Regex("\\d+").findAll(clean1).map { it.value }.toList()
+        val nums2 = Regex("\\d+").findAll(clean2).map { it.value }.toList()
+        if (nums1.isNotEmpty() && nums2.isNotEmpty() && nums1 != nums2) {
+            return false
+        }
+
         val maxLen = max(clean1.length, clean2.length)
-        if (maxLen == 0) return true
+        if (maxLen <= 1) return false
 
         val dist = distance(clean1, clean2)
         return when {

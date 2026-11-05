@@ -67,7 +67,12 @@ class SmartHybridTranslator(
                     bypassCache = bypassCache
                 )
             } catch (e: Exception) {
-                Log.w("SmartHybridTranslator", "Falha na tradução via Gemini, executando fallback para ML Kit: ${e.message}")
+                try {
+                    Log.w("SmartHybridTranslator", "Falha na tradução via Gemini, executando fallback para ML Kit: ${e.message}")
+                } catch (_: Throwable) {
+                    // Fallback para stdout em ambientes de teste unitário onde android.util.Log não está mockado
+                    println("[SmartHybridTranslator] Falha na tradução via Gemini, executando fallback para ML Kit: ${e.message}")
+                }
                 // Fallback automático para o motor offline caso haja erro de rede ou chave
                 return mlKitTranslator.translate(
                     text = text,
