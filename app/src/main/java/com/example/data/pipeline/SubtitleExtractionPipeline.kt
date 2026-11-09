@@ -88,15 +88,19 @@ class SubtitleExtractionPipeline(
         updateState(projectId) { it.copy(isPaused = false, step = "Retomando processamento...") }
     }
 
-    suspend fun cancel(projectId: Long) {
+    fun markCancelled(projectId: Long) {
         cancelledProjects.add(projectId)
         pausedProjects.remove(projectId)
+    }
+
+    suspend fun cancel(projectId: Long) {
+        markCancelled(projectId)
         updateState(projectId) {
             it.copy(
                 isRunning = false,
                 isPaused = false,
                 step = "Cancelado pelo usuário",
-                errorMessage = "Processamento cancelado pelo usuário."
+                errorMessage = null
             )
         }
         projectRepository.updateProgress(projectId, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
@@ -467,6 +471,9 @@ class SubtitleExtractionPipeline(
 
                     // Checkpoint: save only the uncommitted batch to Room!
                     if (batchToSave.size >= 5 || idx == totalLines - 1) {
+                        if (cancelledProjects.contains(project.id)) {
+                            throw CancellationException("Operação cancelada pelo usuário")
+                        }
                         subtitleRepository.saveLines(batchToSave)
                         batchToSave.clear()
 
@@ -476,6 +483,9 @@ class SubtitleExtractionPipeline(
                                 progress = transProgress,
                                 failedTranslationsCount = failedCount
                             )
+                        }
+                        if (cancelledProjects.contains(project.id)) {
+                            throw CancellationException("Operação cancelada pelo usuário")
                         }
                         projectRepository.updateProgress(
                             project.id,
@@ -494,8 +504,15 @@ class SubtitleExtractionPipeline(
 
                 // Flush any remaining lines if the final line(s) were skipped by the watermark filter
                 if (batchToSave.isNotEmpty()) {
+                    if (cancelledProjects.contains(project.id)) {
+                        throw CancellationException("Operação cancelada pelo usuário")
+                    }
                     subtitleRepository.saveLines(batchToSave)
                     batchToSave.clear()
+                }
+
+                if (cancelledProjects.contains(project.id)) {
+                    throw CancellationException("Operação cancelada pelo usuário")
                 }
 
                 if (finalLines.isEmpty()) {
@@ -534,6 +551,7 @@ class SubtitleExtractionPipeline(
                 Result.success(finalLines)
             } catch (c: CancellationException) {
                 withContext(NonCancellable) {
+                    cancelledProjects.remove(project.id)
                     pausedProjects.remove(project.id)
                     projectRepository.updateProgress(project.id, ProjectStatus.PAUSED.name, 0f, "Cancelado pelo usuário")
                     updateState(project.id) {
@@ -542,7 +560,7 @@ class SubtitleExtractionPipeline(
                             progress = 0f,
                             isRunning = false,
                             isPaused = false,
-                            errorMessage = "Processamento cancelado pelo usuário."
+                            errorMessage = null
                         )
                     }
                     NotificationHelper.cancelNotification(context)

@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.pipeline.PipelineState
 import com.example.data.pipeline.SubtitleExtractionPipeline
 import com.example.data.repository.ProjectRepository
-import com.example.domain.model.AppSettings
 import com.example.domain.model.Project
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +30,7 @@ class ProcessingViewModel(
             initialValue = null
         )
 
-    fun startProcessing(appSettings: AppSettings = AppSettings()) {
+    fun startProcessing() {
         viewModelScope.launch {
             val proj = projectRepository.getProjectById(projectId) ?: return@launch
             SubtitleExtractionService.start(context, proj.id, proj.title)

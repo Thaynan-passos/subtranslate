@@ -223,7 +223,7 @@ class MainActivity : ComponentActivity() {
                                 val proj = currentProject
                                 if (proj != null) {
                                     if (!pipelineState.isRunning && proj.status == ProjectStatus.IDLE) {
-                                        processingViewModel.startProcessing(settings)
+                                        processingViewModel.startProcessing()
                                     }
                                 }
                             }
@@ -248,7 +248,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onRetryClick = {
-                                    processingViewModel.startProcessing(settings)
+                                    processingViewModel.startProcessing()
                                 },
                                 onBackClick = {
                                     backStack.clear()

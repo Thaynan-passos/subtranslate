@@ -34,9 +34,17 @@ class SubtitleExtractionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         if (action == ACTION_STOP) {
+            val projId = runningProjectId
+            if (projId != null) {
+                (application as? SubTranslateApp)?.container?.extractionPipeline?.markCancelled(projId)
+            }
             processingJob?.cancel(CancellationException("Cancelado pelo usuário"))
-            if (processingJob?.isCompleted != false) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+            releaseProcessingWakeLock()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            NotificationHelper.cancelNotification(this)
+            if (processingJob == null || processingJob?.isCompleted == true) {
+                runningProjectId = null
+                activeProjectId = null
                 stopSelf()
             }
             return START_NOT_STICKY
@@ -106,6 +114,17 @@ class SubtitleExtractionService : Service() {
                 val settings = container.settingsRepository.settings.first()
                 completedSuccessfully = container.extractionPipeline.execute(project, settings).isSuccess
             } catch (e: CancellationException) {
+                withContext(NonCancellable) {
+                    val proj = container.projectRepository.getProjectById(projectId)
+                    if (proj != null && proj.status == com.example.domain.model.ProjectStatus.PROCESSING) {
+                        container.projectRepository.updateProgress(
+                            projectId,
+                            com.example.domain.model.ProjectStatus.PAUSED.name,
+                            0f,
+                            "Cancelado pelo usuário"
+                        )
+                    }
+                }
                 throw e
             } catch (e: Exception) {
                 val message = e.localizedMessage ?: "Erro ao iniciar a extração do vídeo."
@@ -129,7 +148,7 @@ class SubtitleExtractionService : Service() {
                     processingJob = null
                     runningProjectId = null
                     activeProjectId = null
-                    stopSelf(lastStartId)
+                    stopSelf()
                 }
             }
         }
@@ -139,16 +158,26 @@ class SubtitleExtractionService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        val projId = runningProjectId
+        if (projId != null) {
+            (application as? SubTranslateApp)?.container?.extractionPipeline?.markCancelled(projId)
+        }
         processingJob?.cancel(CancellationException("Tempo limite do serviço de processamento excedido"))
         releaseProcessingWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf(startId)
+        NotificationHelper.cancelNotification(this)
+        runningProjectId = null
+        activeProjectId = null
+        stopSelf()
         super.onTimeout(startId, fgsType)
     }
 
     override fun onDestroy() {
         releaseProcessingWakeLock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        NotificationHelper.cancelNotification(this)
         serviceScope.cancel()
+        runningProjectId = null
         activeProjectId = null
         super.onDestroy()
     }

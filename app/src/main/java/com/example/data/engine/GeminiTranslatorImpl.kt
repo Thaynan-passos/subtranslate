@@ -98,13 +98,14 @@ class GeminiTranslatorImpl(
         targetLanguage: String,
         glossary: Map<String, String>
     ): String {
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
         val url = URL(endpoint)
         val conn = url.openConnection() as HttpURLConnection
 
         return try {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            conn.setRequestProperty("x-goog-api-key", apiKey)
             conn.connectTimeout = 15000
             conn.readTimeout = 20000
             conn.doOutput = true
@@ -124,12 +125,18 @@ class GeminiTranslatorImpl(
                 }
                 parseGeminiResponse(responseText)
             } else {
-                val errorStream = conn.errorStream
-                val errorText = errorStream?.let {
-                    BufferedReader(InputStreamReader(it, Charsets.UTF_8)).use { reader -> reader.readText() }
-                } ?: "Código de erro HTTP $responseCode"
-                throw IllegalStateException("Falha na API do Gemini ($responseCode): $errorText")
+                try {
+                    conn.errorStream?.close()
+                } catch (_: Exception) {}
+
+                throw IllegalStateException(getSafeErrorMessage(responseCode, model))
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            throw IllegalStateException("Tempo limite esgotado ao conectar à API do Google Gemini.")
+        } catch (e: java.net.UnknownHostException) {
+            throw IllegalStateException("Não foi possível conectar à API do Google Gemini. Verifique sua conexão com a internet.")
+        } catch (e: java.io.IOException) {
+            throw IllegalStateException("Erro de rede ao comunicar com a API do Google Gemini.")
         } finally {
             conn.disconnect()
         }
@@ -202,5 +209,23 @@ class GeminiTranslatorImpl(
 
     override fun close() {
         // Sem recursos persistentes a fechar
+    }
+
+    companion object {
+        fun getSafeErrorMessage(responseCode: Int, model: String = "gemini"): String {
+            return when (responseCode) {
+                400 -> "Requisição inválida para a API do Google Gemini. Verifique os parâmetros."
+                401, 403 -> "Chave da API do Google Gemini inválida ou sem permissões de acesso."
+                404 -> "Modelo do Gemini '$model' não encontrado ou indisponível."
+                429 -> "Limite de cota ou requisições da API do Google Gemini excedido. Tente novamente mais tarde."
+                in 500..599 -> "Serviço do Google Gemini temporariamente indisponível. Tente novamente mais tarde."
+                else -> "Falha na comunicação com a API do Google Gemini (código HTTP $responseCode)."
+            }
+        }
+
+        fun redactApiKey(text: String?, apiKey: String?): String {
+            if (text.isNullOrEmpty() || apiKey.isNullOrBlank()) return text ?: ""
+            return text.replace(apiKey, "[REDACTED]")
+        }
     }
 }

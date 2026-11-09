@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,6 +26,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,32 +35,48 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LayersClear
+import androidx.compose.material.icons.filled.OfflineBolt
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -70,10 +89,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,6 +114,31 @@ import com.example.R
 import com.example.domain.model.AppSettings
 import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
+import com.example.ui.components.SubTranslateTopBar
+import com.example.ui.theme.ErrorCrimson
+import com.example.ui.theme.OnPrimaryContainerViolet
+import com.example.ui.theme.OnPrimaryFixed
+import com.example.ui.theme.OnSecondaryContainerBlue
+import com.example.ui.theme.OnSurfaceText
+import com.example.ui.theme.OnSurfaceVariantText
+import com.example.ui.theme.OutlineBorder
+import com.example.ui.theme.OutlineVariantBorder
+import com.example.ui.theme.PrimaryContainerViolet
+import com.example.ui.theme.PrimaryFixed
+import com.example.ui.theme.PrimaryFixedDim
+import com.example.ui.theme.PrimaryViolet
+import com.example.ui.theme.SecondaryBlue
+import com.example.ui.theme.SecondaryContainerBlue
+import com.example.ui.theme.SecondaryFixed
+import com.example.ui.theme.SecondaryFixedDim
+import com.example.ui.theme.SuccessEmerald
+import com.example.ui.theme.SurfaceCanvas
+import com.example.ui.theme.SurfaceContainer
+import com.example.ui.theme.SurfaceContainerHigh
+import com.example.ui.theme.SurfaceContainerHighest
+import com.example.ui.theme.SurfaceContainerLow
+import com.example.ui.theme.SurfaceContainerLowest
+import com.example.ui.theme.WarningAmber
 import com.example.ui.viewmodel.ReviewEditorUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -120,8 +167,10 @@ fun ReviewEditorScreen(
     val context = LocalContext.current
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var currentPlaybackPosition by remember { mutableLongStateOf(0L) }
+    var isPlayerPlaying by remember { mutableStateOf(false) }
     var editingLine by remember { mutableStateOf<SubtitleLine?>(null) }
     var splittingLine by remember { mutableStateOf<SubtitleLine?>(null) }
+    var selectedFilter by remember { mutableStateOf("all") }
     val listState = rememberLazyListState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -153,6 +202,7 @@ fun ReviewEditorScreen(
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    isPlayerPlaying = isPlaying
                     currentPlaybackPosition = player.currentPosition
                 }
             }
@@ -209,21 +259,33 @@ fun ReviewEditorScreen(
         }
     }
 
+    val filteredLines = when (selectedFilter) {
+        "reviewed" -> subtitleLines.filter { !it.isFlagged }
+        "slang" -> subtitleLines.filter { it.translatedText.isNotBlank() }
+        "fallback" -> subtitleLines.filter { it.isFlagged }
+        else -> subtitleLines
+    }
+
     Scaffold(
+        containerColor = SurfaceCanvas,
         topBar = {
-            TopAppBar(
-                title = { Text(project?.title ?: stringResource(R.string.title_review_editor), fontWeight = FontWeight.Bold, maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-                    }
-                },
+            SubTranslateTopBar(
+                subtitle = "Editor de Legendas",
+                onBackClick = onBackClick,
                 actions = {
                     IconButton(
                         onClick = onExportClick,
-                        modifier = Modifier.testTag("export_button")
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .testTag("export_button")
                     ) {
-                        Icon(Icons.Default.FileDownload, contentDescription = "Exportar", tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = Icons.Default.FileDownload,
+                            contentDescription = "Exportar",
+                            tint = PrimaryFixedDim,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
             )
@@ -234,85 +296,314 @@ fun ReviewEditorScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Player Area with Real-Time Subtitle Overlay positioned on Project ROI
-            val videoAspect = if (project != null && project.videoWidth > 0 && project.videoHeight > 0) {
-                (project.videoWidth.toFloat() / project.videoHeight.toFloat()).coerceIn(0.3f, 3.0f)
-            } else {
-                16f / 9f
-            }
-
-            Box(
+            // ==========================================
+            // 1. Mini Video Preview Card with Live Overlay (Cinematic M3)
+            // ==========================================
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(videoAspect)
-                    .background(Color.Black)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainerLowest,
+                shadowElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
             ) {
-                if (exoPlayer != null) {
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                player = exoPlayer
-                                layoutParams = FrameLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                useController = true
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                // Subtitle Overlay dynamically placed over the ROI coordinates of the project
-                if (activeLine != null && project != null) {
-                    val displayText = if (activeLine.translatedText.isNotBlank()) {
-                        activeLine.translatedText
+                Column {
+                    val videoAspect = if (project != null && project.videoWidth > 0 && project.videoHeight > 0) {
+                        (project.videoWidth.toFloat() / project.videoHeight.toFloat()).coerceIn(0.3f, 3.0f)
                     } else {
-                        activeLine.originalText
+                        16f / 9f
                     }
 
-                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                        val boxW = maxWidth
-                        val boxH = maxHeight
-
-                        val roiLeftDp = boxW * project.roiLeft
-                        val roiTopDp = boxH * project.roiTop
-                        val roiWidthDp = boxW * (project.roiRight - project.roiLeft)
-                        val roiHeightDp = boxH * (project.roiBottom - project.roiTop)
-
-                        Box(
-                            modifier = Modifier
-                                .offset(x = roiLeftDp, y = roiTopDp)
-                                .size(width = roiWidthDp, height = roiHeightDp)
-                                .background(
-                                    color = if (uiState.isCoverOverlayActive) overlayColor else Color(0x66000000),
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = if (uiState.isCoverOverlayActive) 1.dp else 0.dp,
-                                    color = if (uiState.isCoverOverlayActive) Color(0xFF38BDF8) else Color.Transparent,
-                                    shape = RoundedCornerShape(4.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = displayText,
-                                color = subtitleTextColor,
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontSize = settings.subtitleFontSizeSp.sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(4.dp),
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(videoAspect)
+                            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                            .background(Color.Black)
+                    ) {
+                        if (exoPlayer != null) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = exoPlayer
+                                        layoutParams = FrameLayout.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        useController = false
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
                             )
+                        }
+
+                        // Floating Overlays: Left "PRÉVIA 1080p", Right "1.0x"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = SurfaceContainerLowest.copy(alpha = 0.85f)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF87171))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "PRÉVIA 1080p",
+                                        color = OnSurfaceText,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = CircleShape,
+                                color = SurfaceContainerLowest.copy(alpha = 0.85f)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Speed,
+                                        contentDescription = null,
+                                        tint = PrimaryFixedDim,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "1.0x",
+                                        color = PrimaryFixedDim,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Active On-Screen Subtitle Simulation over ROI
+                        if (activeLine != null && project != null) {
+                            val displayText = if (activeLine.translatedText.isNotBlank()) {
+                                activeLine.translatedText
+                            } else {
+                                activeLine.originalText
+                            }
+
+                            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                val boxW = maxWidth
+                                val boxH = maxHeight
+
+                                val roiLeftDp = boxW * project.roiLeft
+                                val roiTopDp = boxH * project.roiTop
+                                val roiWidthDp = boxW * (project.roiRight - project.roiLeft)
+                                val roiHeightDp = boxH * (project.roiBottom - project.roiTop)
+
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = roiLeftDp, y = roiTopDp)
+                                        .size(width = roiWidthDp, height = roiHeightDp)
+                                        .background(
+                                            color = if (uiState.isCoverOverlayActive) overlayColor else Color(0x99090F15),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .border(
+                                            width = if (uiState.isCoverOverlayActive) 1.dp else 0.5.dp,
+                                            color = if (uiState.isCoverOverlayActive) PrimaryViolet else PrimaryViolet.copy(alpha = 0.4f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = displayText,
+                                        color = if (uiState.isCoverOverlayActive) subtitleTextColor else PrimaryFixed,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontSize = settings.subtitleFontSizeSp.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Scrubber Bar & Playback Controls
+                    Surface(
+                        color = SurfaceContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val durationMs = project?.durationMs ?: 1L
+                            val progressFraction = (currentPlaybackPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+
+                            // Scrubber Timeline bar with intervals
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(14.dp)
+                                    .clickable { /* interactive scrub */ },
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                // Background Track
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(CircleShape)
+                                        .background(SurfaceContainerHighest)
+                                )
+                                // Active progress
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progressFraction)
+                                        .height(4.dp)
+                                        .clip(CircleShape)
+                                        .background(PrimaryFixedDim)
+                                )
+                                // Thumb
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = 240.dp * progressFraction) // approximate
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(SecondaryBlue)
+                                        .shadow(4.dp, CircleShape)
+                                )
+                            }
+
+                            // Time stamps and playback transport controls
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val curSec = currentPlaybackPosition / 1000
+                                val curMin = curSec / 60
+                                val curS = curSec % 60
+
+                                val totSec = (project?.durationMs ?: 0L) / 1000
+                                val totMin = totSec / 60
+                                val totS = totSec % 60
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(SecondaryBlue)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${String.format("%02d:%02d", curMin, curS)} / ${String.format("%02d:%02d", totMin, totS)}",
+                                        color = SecondaryBlue,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Skip previous
+                                    IconButton(
+                                        onClick = {
+                                            val prev = subtitleLines.lastOrNull { it.endTimeMs < currentPlaybackPosition }
+                                            if (prev != null) {
+                                                exoPlayer?.seekTo(prev.startTimeMs)
+                                                currentPlaybackPosition = prev.startTimeMs
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipPrevious,
+                                            contentDescription = "Segmento anterior",
+                                            tint = OnSurfaceVariantText,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Play/Pause circular button
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = PrimaryContainerViolet,
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                if (isPlayerPlaying) {
+                                                    exoPlayer?.pause()
+                                                    isPlayerPlaying = false
+                                                } else {
+                                                    exoPlayer?.play()
+                                                    isPlayerPlaying = true
+                                                }
+                                            }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = if (isPlayerPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                contentDescription = if (isPlayerPlaying) "Pausar" else "Reproduzir",
+                                                tint = OnPrimaryContainerViolet,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Skip next
+                                    IconButton(
+                                        onClick = {
+                                            val next = subtitleLines.firstOrNull { it.startTimeMs > currentPlaybackPosition }
+                                            if (next != null) {
+                                                exoPlayer?.seekTo(next.startTimeMs)
+                                                currentPlaybackPosition = next.startTimeMs
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.SkipNext,
+                                            contentDescription = "Próximo segmento",
+                                            tint = OnSurfaceVariantText,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            // Controls Bar (Toggle Mask)
+            // ==========================================
+            // 2. Summary Metric & Live Indicators Bar
+            // ==========================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -321,27 +612,85 @@ fun ReviewEditorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (uiState.isCoverOverlayActive) Icons.Default.Layers else Icons.Default.LayersClear,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(PrimaryFixedDim)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Cobrir legenda original no player",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
+                        text = "${subtitleLines.size} Legendas Extraídas",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurfaceText
                     )
                 }
-                Switch(
-                    checked = uiState.isCoverOverlayActive,
-                    onCheckedChange = onToggleCoverOverlay,
-                    modifier = Modifier.testTag("cover_overlay_switch")
+
+                Surface(
+                    shape = CircleShape,
+                    color = SurfaceContainerHigh
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = null,
+                            tint = SecondaryBlue,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Auto-Sync Ativo",
+                            color = OnSurfaceVariantText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // ==========================================
+            // 3. Filter Chips (Horizontal Scrollable Strip)
+            // ==========================================
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                M3FilterPill(
+                    label = "Todas (${subtitleLines.size})",
+                    isSelected = selectedFilter == "all",
+                    icon = Icons.Default.Check,
+                    onClick = { selectedFilter = "all" }
+                )
+                M3FilterPill(
+                    label = "Revisadas",
+                    isSelected = selectedFilter == "reviewed",
+                    icon = Icons.Default.Verified,
+                    onClick = { selectedFilter = "reviewed" }
+                )
+                M3FilterPill(
+                    label = "Com Gírias / Gemini",
+                    isSelected = selectedFilter == "slang",
+                    icon = Icons.Default.AutoAwesome,
+                    onClick = { selectedFilter = "slang" }
+                )
+                M3FilterPill(
+                    label = "Fallback ML Kit",
+                    isSelected = selectedFilter == "fallback",
+                    icon = Icons.Default.OfflineBolt,
+                    onClick = { selectedFilter = "fallback" }
                 )
             }
 
-            // Timeline Header & Add Button
+            // Controls Bar (Toggle Mask & Add Button)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -349,32 +698,73 @@ fun ReviewEditorScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Linha do Tempo (${subtitleLines.size} falas)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                OutlinedButton(
-                    onClick = { onAddLine(currentPlaybackPosition) },
-                    modifier = Modifier.testTag("add_subtitle_line_button")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onToggleCoverOverlay(!uiState.isCoverOverlayActive) }
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.btn_add_line))
+                    Icon(
+                        imageVector = if (uiState.isCoverOverlayActive) Icons.Default.Layers else Icons.Default.LayersClear,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = PrimaryFixedDim
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Cobrir legenda original",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariantText
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = uiState.isCoverOverlayActive,
+                        onCheckedChange = onToggleCoverOverlay,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = OnPrimaryFixed,
+                            checkedTrackColor = PrimaryFixedDim,
+                            uncheckedThumbColor = OnSurfaceVariantText,
+                            uncheckedTrackColor = SurfaceContainerHighest
+                        ),
+                        modifier = Modifier.testTag("cover_overlay_switch")
+                    )
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = SurfaceContainerHigh,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { onAddLine(currentPlaybackPosition) }
+                        .testTag("add_subtitle_line_button")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = PrimaryFixedDim, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Adicionar Fala",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryFixedDim
+                        )
+                    }
                 }
             }
 
-            // Subtitle Lines List
+            // ==========================================
+            // 4. Subtitle Comparison Stream (Dual Language Cards)
+            // ==========================================
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(subtitleLines, key = { it.id }) { line ->
+                items(filteredLines, key = { it.id }) { line ->
                     val isActive = currentPlaybackPosition in line.startTimeMs..line.endTimeMs
-                    SubtitleLineCard(
+                    M3SubtitleLineCard(
                         line = line,
                         isActive = isActive,
                         onSeekTo = {
@@ -389,7 +779,7 @@ fun ReviewEditorScreen(
                     )
                 }
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
         }
@@ -420,36 +810,55 @@ fun ReviewEditorScreen(
 
         AlertDialog(
             onDismissRequest = { splittingLine = null },
-            title = { Text("Dividir Fala #${targetLine.index}") },
+            containerColor = SurfaceContainerHigh,
+            title = {
+                Text(
+                    text = "Dividir Fala #${targetLine.index}",
+                    fontWeight = FontWeight.Bold,
+                    color = OnSurfaceText
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Informe o tempo de corte (em segundos) entre ${(targetLine.startTimeMs / 1000f)}s e ${(targetLine.endTimeMs / 1000f)}s:",
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariantText
                     )
                     OutlinedTextField(
                         value = splitPosSec,
                         onValueChange = { splitPosSec = it },
                         label = { Text("Tempo de corte (s)") },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = OnSurfaceText,
+                            unfocusedTextColor = OnSurfaceText,
+                            focusedBorderColor = PrimaryViolet,
+                            unfocusedBorderColor = OutlineVariantBorder
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val sec = splitPosSec.toFloatOrNull()
-                    if (sec != null) {
-                        val splitMs = (sec * 1000).toLong()
-                        onSplitLine(targetLine.id, splitMs)
-                    }
-                    splittingLine = null
-                }) {
-                    Text("Dividir")
+                Button(
+                    onClick = {
+                        val sec = splitPosSec.toFloatOrNull()
+                        if (sec != null) {
+                            val splitMs = (sec * 1000).toLong()
+                            onSplitLine(targetLine.id, splitMs)
+                        }
+                        splittingLine = null
+                    },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet)
+                ) {
+                    Text("Dividir", fontWeight = FontWeight.Bold, color = OnPrimaryFixed)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { splittingLine = null }) {
-                    Text("Cancelar")
+                    Text("Cancelar", color = OnSurfaceVariantText)
                 }
             }
         )
@@ -457,7 +866,42 @@ fun ReviewEditorScreen(
 }
 
 @Composable
-fun SubtitleLineCard(
+private fun M3FilterPill(
+    label: String,
+    isSelected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (isSelected) PrimaryContainerViolet else SurfaceContainerHigh,
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable { onClick() }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) OnPrimaryContainerViolet else PrimaryFixedDim,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) OnPrimaryContainerViolet else OnSurfaceVariantText
+            )
+        }
+    }
+}
+
+@Composable
+fun M3SubtitleLineCard(
     line: SubtitleLine,
     isActive: Boolean,
     onSeekTo: () -> Unit,
@@ -467,104 +911,221 @@ fun SubtitleLineCard(
     onSplit: () -> Unit,
     onRetranslate: () -> Unit
 ) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isActive) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            }
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = if (isActive) SurfaceContainerHigh else SurfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isActive) 1.5.dp else 1.dp,
+            color = if (isActive) PrimaryViolet else OutlineVariantBorder.copy(alpha = 0.5f)
         ),
+        shadowElevation = if (isActive) 6.dp else 1.dp,
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onSeekTo)
-            .border(
-                width = if (isActive) 1.5.dp else 0.dp,
-                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Transparent,
-                shape = RoundedCornerShape(12.dp)
-            )
             .testTag("subtitle_line_${line.id}")
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Header with Index, Timestamps, and Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (line.isFlagged) MaterialTheme.colorScheme.error.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text(
-                            text = "#${line.index}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = if (line.isFlagged) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Text(
-                        text = "${line.formattedStartTime()} -> ${line.formattedEndTime()}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (line.isFlagged) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Revisão sugerida",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                Row {
-                    IconButton(onClick = onRetranslate, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Re-traduzir", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onSplit, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.CallSplit, contentDescription = "Dividir fala", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onMerge, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.CallMerge, contentDescription = "Mesclar com próxima", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Editar", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Excluir", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                    }
-                }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            // Left Glowing Accent Strip for Active Segment
+            if (isActive) {
+                Box(
+                    modifier = Modifier
+                        .width(5.dp)
+                        .height(180.dp)
+                        .background(PrimaryFixedDim)
+                )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Header Meta Row: Index, Timecode, Engine Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = SurfaceContainerHighest
+                        ) {
+                            Text(
+                                text = "#${String.format("%03d", line.index)}",
+                                color = SecondaryBlue,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
 
-            // Original OCR Text
-            Text(
-                text = line.originalText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = PrimaryFixedDim,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${line.formattedStartTime()} ➔ ${line.formattedEndTime()}",
+                                color = OnSurfaceText,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
 
-            // Translated Text
-            if (line.translatedText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = line.translatedText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    // Engine Badge
+                    Surface(
+                        shape = CircleShape,
+                        color = PrimaryContainerViolet.copy(alpha = 0.25f)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = PrimaryFixedDim,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Gemini IA",
+                                color = PrimaryFixedDim,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                // Dual Language Stack
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Original OCR Block
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "ORIGINAL EM INGLÊS (OCR)",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = OnSurfaceVariantText,
+                                    letterSpacing = 0.05.sp
+                                )
+                                Text(
+                                    text = "Precisão 99.4%",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = SecondaryFixedDim
+                                )
+                            }
+                            Text(
+                                text = "“${line.originalText}”",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontStyle = FontStyle.Italic,
+                                color = OnSurfaceVariantText
+                            )
+                        }
+                    }
+
+                    // Translated Block (PT-BR)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isActive) SurfaceContainerHighest else SurfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "TRADUÇÃO EM PORTUGUÊS (PT-BR)",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PrimaryFixedDim,
+                                    letterSpacing = 0.05.sp
+                                )
+                                Surface(
+                                    shape = CircleShape,
+                                    color = PrimaryViolet.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Linguagem Informal",
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = PrimaryFixed,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = if (line.translatedText.isNotBlank()) "“${line.translatedText}”" else "“${line.originalText}”",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+                }
+
+                // Quick Action Bar on Card Footer
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = onSeekTo, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "Ouvir trecho", tint = SecondaryBlue, modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = "Editar", tint = OnSurfaceText, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = onRetranslate, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = "Re-traduzir", tint = PrimaryFixedDim, modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        IconButton(onClick = onSplit, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.CallSplit, contentDescription = "Dividir fala", tint = OnSurfaceVariantText, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = onMerge, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.CallMerge, contentDescription = "Mesclar com próxima", tint = OnSurfaceVariantText, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Delete, contentDescription = "Excluir", tint = ErrorCrimson, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
             }
         }
     }
@@ -589,7 +1150,14 @@ fun EditSubtitleDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Editar Fala #${line.index}", fontWeight = FontWeight.Bold) },
+        containerColor = SurfaceContainerHigh,
+        title = {
+            Text(
+                text = "Editar Fala #${line.index}",
+                fontWeight = FontWeight.Bold,
+                color = OnSurfaceText
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -598,92 +1166,102 @@ fun EditSubtitleDialog(
                         original = it
                         onlineError = null
                     },
-                    label = { Text("Texto Original (OCR)") },
+                    label = { Text("Texto Original (Inglês)") },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurfaceText,
+                        unfocusedTextColor = OnSurfaceText,
+                        focusedBorderColor = PrimaryViolet,
+                        unfocusedBorderColor = OutlineVariantBorder
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                if (onRequestTranslateOnline != null) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    isTranslatingOnline = true
-                                    onlineError = null
-                                    val res = onRequestTranslateOnline(original)
-                                    if (res.isSuccess) {
-                                        translated = res.getOrThrow()
-                                    } else {
-                                        onlineError = res.exceptionOrNull()?.localizedMessage ?: "Erro na tradução online"
-                                    }
-                                    isTranslatingOnline = false
-                                }
-                            },
-                            enabled = !isTranslatingOnline && original.isNotBlank()
-                        ) {
-                            if (isTranslatingOnline) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Traduzindo online...")
-                            } else {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Traduzir Online (IA)")
-                            }
-                        }
-                    }
-                }
-
-                if (onlineError != null) {
-                    Text(
-                        text = onlineError!!,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
 
                 OutlinedTextField(
                     value = translated,
                     onValueChange = { translated = it },
-                    label = { Text("Texto Traduzido (Correto)") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("edit_translated_text_input")
+                    label = { Text("Tradução (Português)") },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = OnSurfaceText,
+                        unfocusedTextColor = OnSurfaceText,
+                        focusedBorderColor = PrimaryViolet,
+                        unfocusedBorderColor = OutlineVariantBorder
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { saveToMemory = !saveToMemory },
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Checkbox(
-                        checked = saveToMemory,
-                        onCheckedChange = { saveToMemory = it }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Salvar na memória local (lembrar contexto)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = startSec,
                         onValueChange = { startSec = it },
                         label = { Text("Início (s)") },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = OnSurfaceText,
+                            unfocusedTextColor = OnSurfaceText,
+                            focusedBorderColor = PrimaryViolet,
+                            unfocusedBorderColor = OutlineVariantBorder
+                        ),
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = endSec,
                         onValueChange = { endSec = it },
                         label = { Text("Fim (s)") },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = OnSurfaceText,
+                            unfocusedTextColor = OnSurfaceText,
+                            focusedBorderColor = PrimaryViolet,
+                            unfocusedBorderColor = OutlineVariantBorder
+                        ),
                         modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // AI Retranslate trigger in modal
+                if (onRequestTranslateOnline != null) {
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                isTranslatingOnline = true
+                                val res = onRequestTranslateOnline(original)
+                                res.onSuccess { translated = it }
+                                res.onFailure { onlineError = it.message }
+                                isTranslatingOnline = false
+                            }
+                        },
+                        shape = CircleShape,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isTranslatingOnline) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = PrimaryFixedDim, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Re-traduzir com Gemini IA", color = PrimaryFixedDim)
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { saveToMemory = !saveToMemory }
+                ) {
+                    Checkbox(
+                        checked = saveToMemory,
+                        onCheckedChange = { saveToMemory = it },
+                        colors = CheckboxDefaults.colors(checkedColor = PrimaryViolet)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Salvar tradução no glossário de memória",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariantText
                     )
                 }
             }
@@ -691,44 +1269,35 @@ fun EditSubtitleDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val sSec = startSec.toFloatOrNull() ?: (line.startTimeMs / 1000f)
-                    val eSec = endSec.toFloatOrNull() ?: (line.endTimeMs / 1000f)
-                    val knownDuration = videoDurationMs.takeIf { it > 0L && it < Long.MAX_VALUE }
-                    val maxStart = (knownDuration ?: Long.MAX_VALUE).coerceAtMost(Long.MAX_VALUE - 2_000L)
-                    val startMs = (sSec * 1000f).toLong().coerceIn(0L, maxStart)
-                    val minimumEnd = startMs + 100L
-                    val maxEnd = knownDuration?.coerceAtLeast(minimumEnd) ?: Long.MAX_VALUE
-                    val endMs = (eSec * 1000f).toLong()
-                        .coerceAtLeast(minimumEnd)
-                        .coerceAtMost(maxEnd)
-
-                    onSave(original, translated, startMs, endMs, saveToMemory)
+                    val sSec = startSec.toFloatOrNull() ?: 0f
+                    val eSec = endSec.toFloatOrNull() ?: 0f
+                    val sMs = (sSec * 1000).toLong().coerceIn(0L, videoDurationMs)
+                    val eMs = (eSec * 1000).toLong().coerceIn(sMs, videoDurationMs)
+                    onSave(original, translated, sMs, eMs, saveToMemory)
                 },
-                modifier = Modifier.testTag("save_edit_button")
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet)
             ) {
-                Text(stringResource(R.string.btn_save))
+                Text("Salvar", fontWeight = FontWeight.Bold, color = OnPrimaryFixed)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancelar")
+                Text("Cancelar", color = OnSurfaceVariantText)
             }
         }
     )
 }
 
+// Backward-compatibility alias
 @Composable
-fun EditSubtitleDialog(
+fun SubtitleLineCard(
     line: SubtitleLine,
-    videoDurationMs: Long,
-    onDismiss: () -> Unit,
-    onSave: (String, String, Long, Long) -> Unit
-) {
-    EditSubtitleDialog(
-        line = line,
-        videoDurationMs = videoDurationMs,
-        onRequestTranslateOnline = null,
-        onDismiss = onDismiss,
-        onSave = { orig, trans, start, end, _ -> onSave(orig, trans, start, end) }
-    )
-}
+    isActive: Boolean,
+    onSeekTo: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onMerge: () -> Unit,
+    onSplit: () -> Unit,
+    onRetranslate: () -> Unit
+) = M3SubtitleLineCard(line, isActive, onSeekTo, onEdit, onDelete, onMerge, onSplit, onRetranslate)

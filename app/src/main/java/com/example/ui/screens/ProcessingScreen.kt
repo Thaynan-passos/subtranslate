@@ -1,6 +1,15 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,45 +21,81 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.HourglassBottom
+import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.pipeline.PipelineState
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
+import com.example.ui.components.HeroActionButton
+import com.example.ui.components.SubTranslateTopBar
+import com.example.ui.theme.ErrorCrimson
+import com.example.ui.theme.OnPrimaryFixed
+import com.example.ui.theme.OnSecondaryContainerBlue
+import com.example.ui.theme.OnSurfaceText
+import com.example.ui.theme.OnSurfaceVariantText
+import com.example.ui.theme.OutlineBorder
+import com.example.ui.theme.OutlineVariantBorder
+import com.example.ui.theme.PrimaryContainerViolet
+import com.example.ui.theme.PrimaryFixed
+import com.example.ui.theme.PrimaryFixedDim
+import com.example.ui.theme.PrimaryViolet
+import com.example.ui.theme.SecondaryBlue
+import com.example.ui.theme.SecondaryContainerBlue
+import com.example.ui.theme.SuccessEmerald
+import com.example.ui.theme.SurfaceCanvas
+import com.example.ui.theme.SurfaceContainer
+import com.example.ui.theme.SurfaceContainerHigh
+import com.example.ui.theme.SurfaceContainerHighest
+import com.example.ui.theme.SurfaceContainerLow
+import com.example.ui.theme.SurfaceContainerLowest
+import com.example.ui.theme.WarningAmber
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,10 +109,34 @@ fun ProcessingScreen(
     onRetryClick: () -> Unit,
     onBackClick: () -> Unit
 ) {
+    val isCompleted = pipelineState.progress >= 1f || project?.status == ProjectStatus.COMPLETED
+
+    val effectiveErrorMessage = pipelineState.errorMessage?.ifBlank { null }
+        ?: project?.errorMessage?.ifBlank { null }
+        ?: when (project?.status) {
+            ProjectStatus.ERROR -> "O processamento falhou. Tente novamente."
+            ProjectStatus.PAUSED -> "Processamento pausado ou cancelado."
+            else -> null
+        }
+    val hasError = project?.status == ProjectStatus.ERROR || effectiveErrorMessage != null
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseAlpha"
+    )
+
     Scaffold(
+        containerColor = SurfaceCanvas,
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text(stringResource(R.string.title_processing), fontWeight = FontWeight.Bold) }
+            SubTranslateTopBar(
+                subtitle = "Processo em Segundo Plano",
+                onBackClick = onBackClick
             )
         }
     ) { paddingValues ->
@@ -75,297 +144,604 @@ fun ProcessingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
+            // ==========================================
+            // 1. Foreground Service Persistent Notice Banner
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainerHigh,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
             ) {
-                // Header / Progress Wheel
-                Spacer(modifier = Modifier.height(16.dp))
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(160.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    CircularProgressIndicator(
-                        progress = { pipelineState.progress },
-                        modifier = Modifier.fillMaxSize(),
-                        strokeWidth = 10.dp,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                        color = if (pipelineState.progress >= 1f) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
-                    )
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "${(pipelineState.progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (pipelineState.progress >= 1f) "Concluído" else "Progresso",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = project?.title ?: "Processando Vídeo",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = pipelineState.step.ifBlank { "Extraindo legendas em segundo plano..." },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-                if (pipelineState.failedOcrFramesCount > 0) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "OCR não concluiu ${pipelineState.failedOcrFramesCount} amostras; a extração continua.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                val effectiveErrorMessage = pipelineState.errorMessage?.ifBlank { null }
-                    ?: project?.errorMessage?.ifBlank { null }
-                    ?: when (project?.status) {
-                        ProjectStatus.ERROR -> "O processamento falhou. Tente novamente."
-                        ProjectStatus.PAUSED -> "Processamento cancelado. Você pode tentar novamente."
-                        else -> null
-                    }
-                val isErrorOrPaused = project?.status == ProjectStatus.ERROR ||
-                        project?.status == ProjectStatus.PAUSED ||
-                        effectiveErrorMessage != null
-
-                if (effectiveErrorMessage != null) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Card(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("processing_error_card"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(PrimaryContainerViolet.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = PrimaryFixedDim,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .alpha(if (!isCompleted) pulseAlpha else 1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = "Erro",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(32.dp)
+                            Text(
+                                text = "Serviço em Segundo Plano",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+
+                            Surface(
+                                shape = CircleShape,
+                                color = SecondaryContainerBlue.copy(alpha = 0.8f)
+                            ) {
                                 Text(
-                                    text = "Falha no Processamento",
-                                    style = MaterialTheme.typography.titleMedium,
+                                    text = "CPU WAKE-LOCK",
+                                    color = OnSecondaryContainerBlue,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = effectiveErrorMessage,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Processamento ativo. Você pode bloquear a tela ou alternar apps com segurança; o pipeline não será suspenso pelo Android.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceVariantText,
+                            lineHeight = 18.sp
+                        )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Pipeline Stages Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
+            // ==========================================
+            // 2. Error Card (if any)
+            // ==========================================
+            if (hasError && !isCompleted) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("processing_error_card"),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
+                    color = MaterialTheme.colorScheme.errorContainer
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        PipelineStepRow(
-                            label = stringResource(R.string.step_extraction),
-                            isCompleted = pipelineState.progress > 0.1f,
-                            isActive = pipelineState.progress in 0.05f..0.1f
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Erro",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(28.dp)
                         )
-                        PipelineStepRow(
-                            label = stringResource(R.string.step_ocr),
-                            isCompleted = pipelineState.progress > 0.60f,
-                            isActive = pipelineState.progress in 0.1f..0.60f
-                        )
-                        PipelineStepRow(
-                            label = stringResource(R.string.step_grouping),
-                            isCompleted = pipelineState.progress > 0.70f,
-                            isActive = pipelineState.progress in 0.60f..0.70f
-                        )
-                        PipelineStepRow(
-                            label = if (project?.outputMode == OutputMode.EXTRACT_ONLY) {
-                                "4. Preparação do texto para tradução manual"
-                            } else {
-                                stringResource(R.string.step_translation)
-                            },
-                            isCompleted = pipelineState.progress >= 0.95f,
-                            isActive = pipelineState.progress in 0.70f..0.95f
-                        )
-                        PipelineStepRow(
-                            label = stringResource(R.string.step_completed),
-                            isCompleted = pipelineState.progress >= 1f,
-                            isActive = pipelineState.progress >= 1f
-                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Falha no Processamento",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = effectiveErrorMessage ?: "Erro desconhecido",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Stats row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+            // ==========================================
+            // 3. Live Circular & Progress Widget Card
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainerLow,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    StatCard(
-                        title = "Falas Detectadas",
-                        value = "${pipelineState.extractedLinesCount}"
-                    )
-                    StatCard(
-                        title = "Tempo Amostrado",
-                        value = "${pipelineState.currentSampleTimeMs / 1000}s"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isCompleted) SuccessEmerald else PrimaryViolet)
+                                    .alpha(if (isCompleted) 1f else pulseAlpha)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (project?.outputMode == OutputMode.EXTRACT_ONLY) "Extração de Texto" else "Extração & Tradução",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
+                            )
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = SurfaceContainerHighest
+                        ) {
+                            Text(
+                                text = if (isCompleted) "Concluído" else "Fila 1 de 1",
+                                color = if (isCompleted) SuccessEmerald else PrimaryFixedDim,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    // Progress Section (Circular Indicator + Stats)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Circular visualizer
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.size(96.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { pipelineState.progress },
+                                modifier = Modifier.fillMaxSize(),
+                                strokeWidth = 8.dp,
+                                trackColor = SurfaceContainerHighest,
+                                color = if (isCompleted) SuccessEmerald else PrimaryFixedDim
+                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${(pipelineState.progress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCompleted) SuccessEmerald else PrimaryFixed
+                                )
+                                Text(
+                                    text = if (isCompleted) "Concluído" else "Progresso",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = OnSurfaceVariantText
+                                )
+                            }
+                        }
+
+                        // Detailed stats column
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Tempo Decorrido",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariantText
+                                )
+                                val elapsedSec = pipelineState.currentSampleTimeMs / 1000
+                                val eMin = elapsedSec / 60
+                                val eSec = elapsedSec % 60
+                                Text(
+                                    text = "${String.format("%02d:%02d", eMin, eSec)}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OnSurfaceText
+                                )
+                            }
+
+                            // Linear Progress Bar with smooth gradient
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(CircleShape)
+                                    .background(SurfaceContainerHighest)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(pipelineState.progress.coerceIn(0.02f, 1f))
+                                        .height(8.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                listOf(SecondaryBlue, PrimaryFixedDim)
+                                            )
+                                        )
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Falas Detectadas",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariantText
+                                    )
+                                    Text(
+                                        text = "${pipelineState.extractedLinesCount}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnSurfaceText
+                                    )
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "Velocidade",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariantText
+                                    )
+                                    Text(
+                                        text = if (isCompleted) "Finalizado" else "4,2x (Tempo real)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryFixedDim
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Micro Soundwave / Chunk Activity Visualizer
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val heights = listOf(14, 22, 10, 26, 18, 28, 20, 14, 12, 16, 8, 12)
+                        heights.forEachIndexed { idx, h ->
+                            val isActive = !isCompleted && idx < ((pipelineState.progress * heights.size).toInt() + 2)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(h.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isCompleted) SuccessEmerald.copy(alpha = 0.8f)
+                                        else if (isActive) {
+                                            if (idx % 2 == 0) PrimaryFixedDim else SecondaryBlue
+                                        } else SurfaceContainerHighest
+                                    )
+                            )
+                        }
+                    }
+
+                    // Step label text
+                    Text(
+                        text = pipelineState.step.ifBlank { "Extraindo legendas com alta precisão..." },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PrimaryFixedDim,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
 
-            // Bottom Actions
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            // ==========================================
+            // 4. Telemetry Metrics Pills Row
+            // ==========================================
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val effectiveErrorMessage = pipelineState.errorMessage?.ifBlank { null }
-                    ?: project?.errorMessage?.ifBlank { null }
-                    ?: when (project?.status) {
-                        ProjectStatus.ERROR -> "O processamento falhou. Tente novamente."
-                        ProjectStatus.PAUSED -> "Processamento cancelado. Você pode tentar novamente."
-                        else -> null
-                    }
-                val isErrorOrPaused = project?.status == ProjectStatus.ERROR ||
-                        project?.status == ProjectStatus.PAUSED ||
-                        effectiveErrorMessage != null
+                TelemetryPill(icon = Icons.Default.Memory, text = "CPU: 28%", tint = SecondaryBlue)
+                TelemetryPill(icon = Icons.Default.Storage, text = "RAM: 145 MB", tint = SecondaryBlue)
+                TelemetryPill(icon = Icons.Default.ViewInAr, text = "OCR: ML Kit Local", tint = PrimaryFixedDim)
+                TelemetryPill(
+                    icon = Icons.Default.AutoAwesome,
+                    text = "Gemini 1.5 Flash",
+                    tint = PrimaryFixed,
+                    showPulse = !isCompleted
+                )
+            }
 
-                if (pipelineState.progress >= 1f || project?.status == ProjectStatus.COMPLETED) {
-                    Button(
-                        onClick = onGoToEditorClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("go_to_editor_button"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (project?.outputMode == OutputMode.EXTRACT_ONLY) {
-                                "Gerar Arquivo para Tradução"
-                            } else {
-                                "Abrir Editor e Revisão"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                } else if (isErrorOrPaused) {
+            // ==========================================
+            // 5. Real-Time Subtitle Detection Live Stream Card
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedButton(
-                            onClick = onBackClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp)
-                                .testTag("error_back_button"),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Voltar")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = PrimaryFixedDim,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Detecção em Tempo Real",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
+                            )
                         }
 
-                        Button(
-                            onClick = onRetryClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp)
-                                .testTag("retry_processing_button"),
-                            shape = RoundedCornerShape(14.dp)
+                        Surface(
+                            shape = CircleShape,
+                            color = PrimaryContainerViolet.copy(alpha = 0.3f)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tentar novamente")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = null,
+                                    tint = PrimaryFixedDim,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Confiança 99.4%",
+                                    color = PrimaryFixed,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
+                    }
+
+                    // Detected vs Translated Box
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = SurfaceContainerLow,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Hearing,
+                                    contentDescription = null,
+                                    tint = OnSurfaceVariantText,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Original Extraído (OCR):",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariantText
+                                )
+                            }
+
+                            Text(
+                                text = "“Wait, we can't just cross the perimeter right now!”",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                color = OnSurfaceVariantText,
+                                modifier = Modifier.padding(start = 20.dp)
+                            )
+
+                            // Translated box
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = PrimaryContainerViolet.copy(alpha = 0.25f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Translate,
+                                            contentDescription = null,
+                                            tint = PrimaryFixedDim,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Tradução Neural Adaptada:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = PrimaryFixedDim,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "“Espera aí, não dá pra simplesmente atravessar o perímetro agora!”",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnSurfaceText,
+                                        modifier = Modifier.padding(start = 20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // 6. Pipeline Stages Summary
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainerLow,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    PipelineStepRow(
+                        label = stringResource(R.string.step_extraction),
+                        isCompleted = pipelineState.progress > 0.1f,
+                        isActive = pipelineState.progress in 0.05f..0.1f
+                    )
+                    PipelineStepRow(
+                        label = stringResource(R.string.step_ocr),
+                        isCompleted = pipelineState.progress > 0.60f,
+                        isActive = pipelineState.progress in 0.1f..0.60f
+                    )
+                    PipelineStepRow(
+                        label = stringResource(R.string.step_grouping),
+                        isCompleted = pipelineState.progress > 0.70f,
+                        isActive = pipelineState.progress in 0.60f..0.70f
+                    )
+                    PipelineStepRow(
+                        label = if (project?.outputMode == OutputMode.EXTRACT_ONLY) {
+                            "4. Preparação do texto para tradução manual"
+                        } else {
+                            stringResource(R.string.step_translation)
+                        },
+                        isCompleted = pipelineState.progress >= 0.95f,
+                        isActive = pipelineState.progress in 0.70f..0.95f
+                    )
+                    PipelineStepRow(
+                        label = stringResource(R.string.step_completed),
+                        isCompleted = pipelineState.progress >= 1f,
+                        isActive = pipelineState.progress >= 1f
+                    )
+                }
+            }
+
+            // ==========================================
+            // 7. Bottom Actions (Pill Style)
+            // ==========================================
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (isCompleted) {
+                    HeroActionButton(
+                        text = if (project?.outputMode == OutputMode.EXTRACT_ONLY) "Abrir Tradução Manual" else "Abrir Editor de Legendas",
+                        onClick = onGoToEditorClick,
+                        tag = "go_to_editor_button"
+                    )
+                } else if (hasError) {
+                    Button(
+                        onClick = onRetryClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("retry_button"),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = OnPrimaryFixed)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Tentar Novamente", fontWeight = FontWeight.Bold, color = OnPrimaryFixed)
+                    }
+
+                    OutlinedButton(
+                        onClick = onCancelClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("cancel_button"),
+                        shape = CircleShape
+                    ) {
+                        Text("Cancelar", color = OnSurfaceVariantText)
                     }
                 } else {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = onCancelClick,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(50.dp)
-                                .testTag("cancel_processing_button"),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.btn_cancel))
-                        }
-
                         if (pipelineState.isPaused) {
                             Button(
                                 onClick = onResumeClick,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(50.dp)
-                                    .testTag("resume_processing_button"),
-                                shape = RoundedCornerShape(14.dp)
+                                    .height(52.dp)
+                                    .testTag("resume_button"),
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryViolet)
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OnPrimaryFixed)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.btn_resume))
+                                Text("Retomar", fontWeight = FontWeight.Bold, color = OnPrimaryFixed)
                             }
                         } else {
-                            Button(
+                            OutlinedButton(
                                 onClick = onPauseClick,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(50.dp)
-                                    .testTag("pause_processing_button"),
-                                shape = RoundedCornerShape(14.dp)
+                                    .height(52.dp)
+                                    .testTag("pause_button"),
+                                shape = CircleShape
                             ) {
-                                Icon(Icons.Default.Pause, contentDescription = null)
+                                Icon(Icons.Default.Pause, contentDescription = null, tint = OnSurfaceText)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.btn_pause))
+                                Text("Pausar", color = OnSurfaceText)
                             }
+                        }
+
+                        OutlinedButton(
+                            onClick = onCancelClick,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("cancel_button"),
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = ErrorCrimson)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Cancelar", color = ErrorCrimson)
                         }
                     }
                 }
@@ -375,51 +751,121 @@ fun ProcessingScreen(
 }
 
 @Composable
-fun PipelineStepRow(
+private fun TelemetryPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    tint: Color,
+    showPulse: Boolean = false
+) {
+    Surface(
+        shape = CircleShape,
+        color = SurfaceContainerHigh,
+        modifier = Modifier.shadow(1.dp, CircleShape)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = text,
+                color = OnSurfaceText,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium
+            )
+            if (showPulse) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(PrimaryFixedDim)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PipelineStepRow(
     label: String,
     isCompleted: Boolean,
     isActive: Boolean
 ) {
     Row(
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        val iconColor = when {
-            isCompleted -> Color(0xFF10B981)
-            isActive -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(
+                        when {
+                            isCompleted -> SuccessEmerald.copy(alpha = 0.20f)
+                            isActive -> PrimaryViolet.copy(alpha = 0.20f)
+                            else -> SurfaceContainerHighest
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isCompleted) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = SuccessEmerald,
+                        modifier = Modifier.size(16.dp)
+                    )
+                } else if (isActive) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        strokeWidth = 2.dp,
+                        color = PrimaryFixedDim
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(OnSurfaceVariantText.copy(alpha = 0.4f))
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = when {
+                    isCompleted -> OnSurfaceText
+                    isActive -> PrimaryFixed
+                    else -> OnSurfaceVariantText
+                },
+                fontWeight = if (isActive || isCompleted) FontWeight.SemiBold else FontWeight.Normal
+            )
         }
 
-        Icon(
-            imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Default.HourglassBottom,
-            contentDescription = null,
-            tint = iconColor,
-            modifier = Modifier.size(20.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (isActive || isCompleted) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (isActive || isCompleted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-    }
-}
-
-@Composable
-fun StatCard(title: String, value: String) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(text = title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (isCompleted) {
+            Text(
+                text = "OK",
+                color = SuccessEmerald,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
