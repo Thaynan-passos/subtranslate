@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -110,15 +111,12 @@ fun ProcessingScreen(
     onBackClick: () -> Unit
 ) {
     val isCompleted = pipelineState.progress >= 1f || project?.status == ProjectStatus.COMPLETED
+    val isPausedState = pipelineState.isPaused || project?.status == ProjectStatus.PAUSED
 
     val effectiveErrorMessage = pipelineState.errorMessage?.ifBlank { null }
         ?: project?.errorMessage?.ifBlank { null }
-        ?: when (project?.status) {
-            ProjectStatus.ERROR -> "O processamento falhou. Tente novamente."
-            ProjectStatus.PAUSED -> "Processamento pausado ou cancelado."
-            else -> null
-        }
-    val hasError = project?.status == ProjectStatus.ERROR || effectiveErrorMessage != null
+        ?: if (project?.status == ProjectStatus.ERROR) "O processamento falhou. Tente novamente." else null
+    val hasError = project?.status == ProjectStatus.ERROR || (effectiveErrorMessage != null && !isPausedState)
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -255,6 +253,40 @@ fun ProcessingScreen(
                                 text = effectiveErrorMessage ?: "Erro desconhecido",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            } else if (isPausedState && !isCompleted) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = SurfaceContainerHigh,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryFixedDim.copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Pause,
+                            contentDescription = "Pausado",
+                            tint = PrimaryFixedDim,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Processamento Pausado",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "O pipeline foi pausado. Clique em 'Retomar' para continuar de onde parou.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnSurfaceVariantText
                             )
                         }
                     }
@@ -471,14 +503,28 @@ fun ProcessingScreen(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TelemetryPill(icon = Icons.Default.Memory, text = "CPU: 28%", tint = SecondaryBlue)
-                TelemetryPill(icon = Icons.Default.Storage, text = "RAM: 145 MB", tint = SecondaryBlue)
-                TelemetryPill(icon = Icons.Default.ViewInAr, text = "OCR: ML Kit Local", tint = PrimaryFixedDim)
+                val srcLang = project?.sourceLanguage?.uppercase() ?: "EN"
+                val tgtLang = project?.targetLanguage?.uppercase() ?: "PT"
+                TelemetryPill(
+                    icon = Icons.Default.Translate,
+                    text = "$srcLang ➔ $tgtLang",
+                    tint = SecondaryBlue
+                )
+                TelemetryPill(
+                    icon = Icons.Default.ViewInAr,
+                    text = "OCR: ML Kit Neural",
+                    tint = PrimaryFixedDim
+                )
+                TelemetryPill(
+                    icon = Icons.Default.Videocam,
+                    text = "${project?.samplingFps ?: 2} FPS (Amostragem)",
+                    tint = SecondaryBlue
+                )
                 TelemetryPill(
                     icon = Icons.Default.AutoAwesome,
-                    text = "Gemini 1.5 Flash",
+                    text = if (project?.outputMode == OutputMode.EXTRACT_ONLY) "Modo: Extração Manual" else "Tradução Automática",
                     tint = PrimaryFixed,
-                    showPulse = !isCompleted
+                    showPulse = !isCompleted && !isPausedState
                 )
             }
 
@@ -532,7 +578,7 @@ fun ProcessingScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Confiança 99.4%",
+                                    text = if (isCompleted) "Concluído" else if (isPausedState) "Pausado" else "Ativo",
                                     color = PrimaryFixed,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
@@ -567,44 +613,47 @@ fun ProcessingScreen(
                                 )
                             }
 
+                            val detectedText = pipelineState.lastDetectedText.ifBlank { null }
                             Text(
-                                text = "“Wait, we can't just cross the perimeter right now!”",
+                                text = if (detectedText != null) "“$detectedText”" else "Aguardando detecção de falas no vídeo...",
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                color = OnSurfaceVariantText,
+                                fontStyle = if (detectedText != null) androidx.compose.ui.text.font.FontStyle.Normal else androidx.compose.ui.text.font.FontStyle.Italic,
+                                color = if (detectedText != null) OnSurfaceText else OnSurfaceVariantText,
                                 modifier = Modifier.padding(start = 20.dp)
                             )
 
-                            // Translated box
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = PrimaryContainerViolet.copy(alpha = 0.25f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Translate,
-                                            contentDescription = null,
-                                            tint = PrimaryFixedDim,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                            // Translated box (se houver tradução e não for extract-only)
+                            if (project?.outputMode != OutputMode.EXTRACT_ONLY && pipelineState.lastTranslatedText.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = PrimaryContainerViolet.copy(alpha = 0.25f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Translate,
+                                                contentDescription = null,
+                                                tint = PrimaryFixedDim,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Tradução Neural:",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = PrimaryFixedDim,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "Tradução Neural Adaptada:",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = PrimaryFixedDim,
-                                            fontWeight = FontWeight.SemiBold
+                                            text = "“${pipelineState.lastTranslatedText}”",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = OnSurfaceText,
+                                            modifier = Modifier.padding(start = 20.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "“Espera aí, não dá pra simplesmente atravessar o perímetro agora!”",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OnSurfaceText,
-                                        modifier = Modifier.padding(start = 20.dp)
-                                    )
                                 }
                             }
                         }
@@ -702,7 +751,7 @@ fun ProcessingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        if (pipelineState.isPaused) {
+                        if (isPausedState) {
                             Button(
                                 onClick = onResumeClick,
                                 modifier = Modifier

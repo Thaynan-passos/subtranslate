@@ -8,6 +8,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,6 +92,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -152,7 +154,7 @@ fun ReviewEditorScreen(
     uiState: ReviewEditorUiState,
     onSelectLine: (Long?) -> Unit,
     onToggleCoverOverlay: (Boolean) -> Unit,
-    onUpdateLineText: (Long, String, String) -> Unit,
+    onUpdateLineText: (Long, String, String, Boolean) -> Unit,
     onUpdateLineTimestamps: (Long, Long, Long) -> Unit,
     onDeleteLine: (Long) -> Unit,
     onMergeWithNext: (Long) -> Unit,
@@ -460,14 +462,24 @@ fun ReviewEditorScreen(
                             val durationMs = project?.durationMs ?: 1L
                             val progressFraction = (currentPlaybackPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
 
-                            // Scrubber Timeline bar with intervals
-                            Box(
+                            // Scrubber Timeline bar interativa com Seek e thumb proporcional
+                            BoxWithConstraints(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(14.dp)
-                                    .clickable { /* interactive scrub */ },
+                                    .height(20.dp)
+                                    .pointerInput(durationMs) {
+                                        detectTapGestures { offset ->
+                                            if (size.width > 0 && durationMs > 0L) {
+                                                val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                                val targetMs = (fraction * durationMs).toLong()
+                                                exoPlayer?.seekTo(targetMs)
+                                                currentPlaybackPosition = targetMs
+                                            }
+                                        }
+                                    },
                                 contentAlignment = Alignment.CenterStart
                             ) {
+                                val totalWidth = maxWidth
                                 // Background Track
                                 Box(
                                     modifier = Modifier
@@ -484,10 +496,11 @@ fun ReviewEditorScreen(
                                         .clip(CircleShape)
                                         .background(PrimaryFixedDim)
                                 )
-                                // Thumb
+                                // Thumb perfeitamente posicionado proporcionalmente na largura
+                                val thumbOffset = ((totalWidth - 12.dp) * progressFraction).coerceAtLeast(0.dp)
                                 Box(
                                     modifier = Modifier
-                                        .offset(x = 240.dp * progressFraction) // approximate
+                                        .offset(x = thumbOffset)
                                         .size(12.dp)
                                         .clip(CircleShape)
                                         .background(SecondaryBlue)
@@ -792,8 +805,8 @@ fun ReviewEditorScreen(
             videoDurationMs = project?.durationMs ?: Long.MAX_VALUE,
             onRequestTranslateOnline = onRequestTranslateOnline,
             onDismiss = { editingLine = null },
-            onSave = { updatedOrig, updatedTrans, startMs, endMs, _ ->
-                onUpdateLineText(editingLine!!.id, updatedOrig, updatedTrans)
+            onSave = { updatedOrig, updatedTrans, startMs, endMs, saveToMemory ->
+                onUpdateLineText(editingLine!!.id, updatedOrig, updatedTrans, saveToMemory)
                 onUpdateLineTimestamps(editingLine!!.id, startMs, endMs)
                 editingLine = null
             }

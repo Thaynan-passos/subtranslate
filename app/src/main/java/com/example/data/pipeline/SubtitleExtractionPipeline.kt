@@ -42,7 +42,9 @@ data class PipelineState(
     val totalDurationMs: Long = 0L,
     val errorMessage: String? = null,
     val failedTranslationsCount: Int = 0,
-    val failedOcrFramesCount: Int = 0
+    val failedOcrFramesCount: Int = 0,
+    val lastDetectedText: String = "",
+    val lastTranslatedText: String = ""
 )
 
 class SubtitleExtractionPipeline(
@@ -323,12 +325,14 @@ class SubtitleExtractionPipeline(
                     val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
                         .coerceIn(0.1f, 0.6f)
                     if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
+                        val latestDetected = rawDetections.lastOrNull()?.text ?: ""
                         updateState(project.id) {
                             it.copy(
                                 progress = frameProgress,
                                 currentSampleTimeMs = currentTimeMs,
                                 extractedLinesCount = rawDetections.size,
-                                failedOcrFramesCount = failedOcrFrames
+                                failedOcrFramesCount = failedOcrFrames,
+                                lastDetectedText = if (latestDetected.isNotBlank()) latestDetected else it.lastDetectedText
                             )
                         }
                         val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
@@ -481,7 +485,9 @@ class SubtitleExtractionPipeline(
                         updateState(project.id) {
                             it.copy(
                                 progress = transProgress,
-                                failedTranslationsCount = failedCount
+                                failedTranslationsCount = failedCount,
+                                lastDetectedText = sanitizedOriginalText,
+                                lastTranslatedText = translatedText
                             )
                         }
                         if (cancelledProjects.contains(project.id)) {

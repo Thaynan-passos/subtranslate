@@ -40,7 +40,14 @@ class SmartHybridTranslator(
         onProgress: (Float) -> Unit
     ): Boolean {
         val settings = settingsProvider()
-        if (settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()) {
+        val preferGemini = settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()
+        if (preferGemini) {
+            // Tenta pré-baixar o modelo ML Kit de forma não-bloqueante para garantir fallback offline resiliente
+            try {
+                mlKitTranslator.downloadModelIfNeeded(sourceLanguage, targetLanguage, requireWifi = false) { }
+            } catch (_: Exception) {
+                // Falha no pré-carregamento do fallback offline não bloqueia o uso primário do Gemini
+            }
             onProgress(1.0f)
             return true
         }

@@ -154,7 +154,12 @@ object ManualTranslationFile {
             val blockLines = block.split('\n').map { it.trimEnd() }.filter { it.isNotBlank() }
             val tsIndex = blockLines.indexOfFirst { timestampRegex.containsMatchIn(it) }
             if (tsIndex < 0) continue
-            sequential++
+
+            val explicitIndex = if (tsIndex > 0) {
+                blockLines[tsIndex - 1].trim().toIntOrNull()
+            } else null
+
+            val targetNumber = explicitIndex ?: (++sequential)
             val payload = blockLines.drop(tsIndex + 1)
                 .joinToString("\n") { it.trim() }
                 .replace(Regex("<[^>]+>"), "")
@@ -162,7 +167,7 @@ object ManualTranslationFile {
                 .replace("&gt;", ">")
                 .replace("&amp;", "&")
                 .trim()
-            if (payload.isNotEmpty()) result[sequential] = payload
+            if (payload.isNotEmpty()) result[targetNumber] = payload
         }
         return result
     }

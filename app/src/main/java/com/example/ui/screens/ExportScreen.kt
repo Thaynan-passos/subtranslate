@@ -348,7 +348,8 @@ fun ExportScreen(
                             onClick = {
                                 scope.launch(Dispatchers.IO) {
                                     try {
-                                        val cacheFile = File(context.cacheDir, "$sanitizedTitle.srt")
+                                        val dir = File(context.cacheDir, "subtitles").apply { mkdirs() }
+                                        val cacheFile = File(dir, "$sanitizedTitle.srt")
                                         cacheFile.writeText(srtContent, Charsets.UTF_8)
                                         val contentUri = FileProvider.getUriForFile(
                                             context,
@@ -361,7 +362,9 @@ fun ExportScreen(
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         withContext(Dispatchers.Main) {
-                                            context.startActivity(Intent.createChooser(shareIntent, "Compartilhar legenda"))
+                                            val chooser = Intent.createChooser(shareIntent, "Compartilhar legenda")
+                                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(chooser)
                                         }
                                     } catch (e: Exception) {
                                         withContext(Dispatchers.Main) {

@@ -286,7 +286,7 @@ class MainActivity : ComponentActivity() {
                                 uiState = editorUiState,
                                 onSelectLine = { editorViewModel.selectLine(it) },
                                 onToggleCoverOverlay = { editorViewModel.toggleCoverOverlay(it) },
-                                onUpdateLineText = { id, o, t -> editorViewModel.updateLineText(id, o, t) },
+                                onUpdateLineText = { id, o, t, m -> editorViewModel.updateLineText(id, o, t, m) },
                                 onUpdateLineTimestamps = { id, s, e -> editorViewModel.updateLineTimestamps(id, s, e) },
                                 onDeleteLine = { editorViewModel.deleteLine(it) },
                                 onMergeWithNext = { editorViewModel.mergeWithNext(it) },
