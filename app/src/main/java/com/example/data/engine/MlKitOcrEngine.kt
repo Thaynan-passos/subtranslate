@@ -59,21 +59,41 @@ class MlKitOcrEngine : OcrEngine {
 
     private suspend fun recognizeWithVariants(bitmap: Bitmap, languageCode: String): OcrResult {
         val enhanced = ImagePreprocessor.enhanceForOcr(bitmap)
-        val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
-        if (!needsAlternateImage(originalResult)) return originalResult
+        try {
+            val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
+            if (!needsAlternateImage(originalResult)) return originalResult
 
-        val contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
-        val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
-        var bestResult = chooseBetterResult(originalResult, contrastResult)
+            var bestResult = originalResult
 
-        if (bestResult.fullText.isBlank() ||
-            bestResult.fullText.count { it.isLetterOrDigit() } <= 2
-        ) {
-            val binary = ImagePreprocessor.createOtsuVariant(enhanced)
-            val binaryResult = recognizeOnce(binary, languageCode, bitmap.width, bitmap.height)
-            bestResult = chooseBetterResult(bestResult, binaryResult)
+            val contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
+            try {
+                val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
+                bestResult = chooseBetterResult(originalResult, contrastResult)
+            } finally {
+                if (!contrast.isRecycled && contrast !== enhanced && contrast !== bitmap) {
+                    contrast.recycle()
+                }
+            }
+
+            if (bestResult.fullText.isBlank() ||
+                bestResult.fullText.count { it.isLetterOrDigit() } <= 2
+            ) {
+                val binary = ImagePreprocessor.createOtsuVariant(enhanced)
+                try {
+                    val binaryResult = recognizeOnce(binary, languageCode, bitmap.width, bitmap.height)
+                    bestResult = chooseBetterResult(bestResult, binaryResult)
+                } finally {
+                    if (!binary.isRecycled && binary !== enhanced && binary !== bitmap) {
+                        binary.recycle()
+                    }
+                }
+            }
+            return bestResult
+        } finally {
+            if (!enhanced.isRecycled && enhanced !== bitmap) {
+                enhanced.recycle()
+            }
         }
-        return bestResult
     }
 
     private suspend fun recognizeOnce(

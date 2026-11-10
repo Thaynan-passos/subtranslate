@@ -45,7 +45,6 @@ import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.DocumentScanner
-import androidx.compose.material.icons.filled.DragPan
 import androidx.compose.material.icons.filled.FilterBAndW
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Movie
@@ -378,11 +377,20 @@ fun ProjectConfigScreen(
                                             .background(Color(0xFFF87171))
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
+                                    val sampleMs = if (uiState.durationMs > 0L) {
+                                        (uiState.durationMs * 0.15f).toLong().coerceAtLeast(1000L).coerceAtMost(uiState.durationMs)
+                                    } else {
+                                        0L
+                                    }
+                                    val sSec = sampleMs / 1000
+                                    val sMin = sSec / 60
+                                    val sS = sSec % 60
+                                    val sMs = sampleMs % 1000
                                     val durationSec = uiState.durationMs / 1000
                                     val min = durationSec / 60
                                     val sec = durationSec % 60
                                     Text(
-                                        text = "00:04:12.850 / ${String.format("%02d:%02d", min, sec)}",
+                                        text = "${String.format("%02d:%02d.%03d", sMin, sS, sMs)} / ${String.format("%02d:%02d", min, sec)}",
                                         color = OnSurfaceText,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace,
