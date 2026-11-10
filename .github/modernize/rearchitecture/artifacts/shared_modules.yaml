@@ -26,7 +26,7 @@ modules:
   - name: project_repository
     kind: utility
     source_loc: "app/src/main/java/com/example/data/repository/ProjectRepository.kt:10"
-    used_by_units: [app_launcher, project_library, project_setup, processing_screen, extraction_service, subtitle_editor]
+    used_by_units: [app_launcher, project_library, project_setup, processing_screen, extraction_service, subtitle_editor, manual_translation]
     fields:
       - name: getAllProjects
         type: "Flow<List<Project>>"
@@ -52,7 +52,7 @@ modules:
   - name: subtitle_repository
     kind: utility
     source_loc: "app/src/main/java/com/example/data/repository/SubtitleRepository.kt:11"
-    used_by_units: [extraction_service, subtitle_editor]
+    used_by_units: [extraction_service, subtitle_editor, manual_translation]
     fields:
       - name: getLines
         type: "Flow<List<SubtitleLine>>"
@@ -97,6 +97,16 @@ modules:
       - name: updateMaxCharsPerLine
         type: "suspend (Int) -> Unit"
       - name: updateGlossary
+        type: "suspend (String) -> Unit"
+      - name: updateFilterWatermarks
+        type: "suspend (Boolean) -> Unit"
+      - name: updateIgnoredTerms
+        type: "suspend (String) -> Unit"
+      - name: updateTranslationEngine
+        type: "suspend (String) -> Unit"
+      - name: updateGeminiApiKey
+        type: "suspend (String) -> Unit"
+      - name: updateGeminiModel
         type: "suspend (String) -> Unit"
     god_class: false
     split_candidate: false

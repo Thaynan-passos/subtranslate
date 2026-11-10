@@ -1,0 +1,27 @@
+unit: manual_translation
+bindings:
+  - type: route-declaration
+    name: "manual/{id}"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:306"
+    target: "ManualTranslationScreen"
+    must_appear_in_target: true
+    notes: "A rota recebe o ID do projeto e fornece repositories ao ManualTranslationViewModel."
+  - type: convention
+    name: "ActivityResultContracts.CreateDocument(text/plain)"
+    source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:136"
+    target: "Exportação de arquivo de tradução manual"
+    must_appear_in_target: true
+    notes: "Escreve UTF-8 no URI escolhido pelo usuário."
+  - type: convention
+    name: "ActivityResultContracts.OpenDocument"
+    source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:158"
+    target: "Importação de tradução TXT/SRT/VTT"
+    must_appear_in_target: true
+    notes: "Solicita tipos text/*, application/x-subrip e application/octet-stream."
+  - type: xml-config
+    name: "FileProvider"
+    source_loc: "app/src/main/AndroidManifest.xml:34"
+    target: "Compartilhamento do TXT exportado"
+    must_appear_in_target: true
+    notes: "URI temporária de leitura usa ${applicationId}.fileprovider."
+runtime_config: []

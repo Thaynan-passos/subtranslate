@@ -1,46 +1,57 @@
 unit: extraction_service
 side_effects:
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:53"
-    effect: "Cria canal/notificação e promove o service a foreground com tipo compatível com a versão Android."
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:87"
+    effect: "Promove o service a foreground com notificação e tipo de serviço compatível com a API Android."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:119"
-    effect: "Persiste estado/progresso do projeto durante o pipeline e salva legendas extraídas/traduzidas."
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:136"
+    effect: "Persiste status, etapa e progresso do projeto durante a extração."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:82"
-    effect: "Publica activeProjectId enquanto o processamento está em execução."
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:477"
+    effect: "Persiste em lotes as linhas OCR agrupadas/traduzidas."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:106"
+    effect: "Publica activeProjectId enquanto o serviço processa um projeto."
     must_preserve: true
 branches:
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:35"
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:36"
     condition: "Intent action é ACTION_STOP."
-    behavior: "Cancela o job ativo e encerra o foreground service quando o job terminou."
+    behavior: "Marca o pipeline cancelado, cancela o job, libera wake lock e remove a notificação; para o serviço quando o job terminar."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:66"
-    condition: "Já existe job ativo para outro projeto."
-    behavior: "Não inicia concorrente; registra erro no projeto solicitado."
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:52"
+    condition: "Intent action é ACTION_PAUSE ou ACTION_RESUME para o projeto ativo."
+    behavior: "Libera ou readquire o partial wake lock; pipeline mantém estado de pausa/retomada."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:104"
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:68"
+    condition: "Já existe job ativo para projeto diferente."
+    behavior: "Não inicia execução concorrente e persiste status ERROR no projeto solicitado."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:117"
     condition: "Mutex do projeto não pode ser adquirido."
     behavior: "Retorna Result.failure indicando processamento já existente."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:89"
-    condition: "Execução termina com sucesso e permissão de notificação existe."
-    behavior: "Destaca a notificação ao encerrar o foreground; nos demais casos remove e cancela."
+  - source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:125"
+    condition: "Projeto usa OutputMode.EXTRACT_ONLY."
+    behavior: "Pula aquisição do modelo de tradução e deixa translatedText vazio para importação manual posterior."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:140"
+    condition: "Execução conclui com sucesso e permissão de notificação existe."
+    behavior: "Desanexa a notificação ao encerrar; nos demais casos remove e cancela."
     must_preserve: true
 error_paths:
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:91"
-    trigger: "Projeto ausente ou exceção não relacionada a cancelamento durante inicialização/execução."
-    outcome: "Atualiza status do projeto para ERROR, progresso zero e mensagem localizada; limpa estado no finally."
-    contract: "Cancelamento é relançado; outras exceções persistem estado de erro."
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:125"
+    trigger: "Projeto inexistente ou exceção durante inicialização/execução."
+    outcome: "Persiste status ERROR, progresso zero e mensagem; limpa estado e para o service no finally."
+    contract: "CancellationException segue caminho separado e é relançada."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:124"
-    trigger: "Android sinaliza timeout do foreground service."
-    outcome: "Cancela job com CancellationException e solicita parada do service."
-    contract: "onTimeout(startId, fgsType) do Android Service."
+  - source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:160"
+    trigger: "Android notifica timeout do foreground service."
+    outcome: "Marca pipeline cancelado, cancela job, libera wake lock, remove notificação e para o serviço."
+    contract: "Callback Android Service.onTimeout(startId, fgsType)."
     must_preserve: true
 concurrency:
   model: coroutine
   tx_boundary:
     source_loc: "app/src/main/java/com/example/data/local/dao/SubtitleLineDao.kt:35"
-    scope: "Atualização em lote das entidades SubtitleLineEntity pelo DAO updateLines."
+    scope: "Atualização em lote de entidades SubtitleLineEntity via updateLines."
     isolation: "Gerenciada pelo Room."
     must_preserve: true

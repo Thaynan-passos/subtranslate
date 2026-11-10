@@ -2,68 +2,98 @@ unit: settings
 bindings:
   - type: route-declaration
     name: "settings"
-    source_loc: "app/src/main/java/com/example/MainActivity.kt:285"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:367"
     target: "SettingsScreen"
     must_appear_in_target: true
-    notes: "A Activity observa settings e passa estado/callbacks à tela."
+    notes: "A Activity observa SettingsRepository e passa estado/callbacks à tela."
   - type: convention
     name: "DataStore Preferences"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:16"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:17"
     target: "subtranslate_settings"
     must_appear_in_target: true
-    notes: "Preferências são persistidas fora do banco Room."
+    notes: "As preferências são persistidas fora do Room."
 runtime_config:
   - key: "default_fps"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:23"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:22"
     source: code
-    default_value: "3"
+    default_value: "2"
     must_appear_in_target: true
-    notes: "FPS inicial aplicado à configuração de projeto."
+    notes: "FPS padrão usado na configuração de projetos."
   - key: "min_speech_duration"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:24"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:23"
     source: code
     default_value: "300"
     must_appear_in_target: true
     notes: "Duração mínima de fala em milissegundos."
   - key: "similarity_threshold"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:25"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:24"
     source: code
     default_value: "0.85"
     must_appear_in_target: true
     notes: "Limiar de similaridade textual."
   - key: "max_chars_per_line"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:26"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:25"
     source: code
     default_value: "42"
     must_appear_in_target: true
-    notes: "Limite de caracteres por linha."
+    notes: "Limite configurado de caracteres por linha."
   - key: "cover_original_overlay"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:27"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:26"
     source: code
     default_value: "true"
     must_appear_in_target: true
     notes: "Habilita cobertura do texto original."
   - key: "overlay_color_hex"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:28"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:27"
     source: code
     default_value: "#E6000000"
     must_appear_in_target: true
-    notes: "Cor da camada de cobertura."
+    notes: "Cor da camada que cobre o texto original."
   - key: "subtitle_font_size"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:29"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:28"
     source: code
     default_value: "18"
     must_appear_in_target: true
-    notes: "Tamanho da fonte da legenda."
+    notes: "Tamanho da fonte de legenda."
   - key: "subtitle_text_color"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:30"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:29"
     source: code
     default_value: "#FFFFFFFF"
     must_appear_in_target: true
     notes: "Cor do texto da legenda."
   - key: "glossary_raw"
-    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:31"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:30"
     source: code
     default_value: "vazio"
     must_appear_in_target: true
-    notes: "Glossário bruto parseado em pares origem/destino."
+    notes: "Glossário bruto convertido em pares origem/destino."
+  - key: "filter_watermarks"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:31"
+    source: code
+    default_value: "true"
+    must_appear_in_target: true
+    notes: "Ativa o filtro de marcas d'água."
+  - key: "ignored_terms_raw"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:32"
+    source: code
+    default_value: "vazio"
+    must_appear_in_target: true
+    notes: "Termos ignorados pelo filtro."
+  - key: "translation_engine"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:33"
+    source: code
+    default_value: "gemini"
+    must_appear_in_target: true
+    notes: "Engine selecionada; SmartHybridTranslator pode usar fallback local."
+  - key: "gemini_api_key"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:34"
+    source: code
+    default_value: "vazio"
+    must_appear_in_target: true
+    notes: "Chave fornecida pelo usuário para a API Gemini."
+  - key: "gemini_model"
+    source_loc: "app/src/main/java/com/example/data/repository/SettingsRepository.kt:35"
+    source: code
+    default_value: "gemini-2.5-flash"
+    must_appear_in_target: true
+    notes: "Identificador do modelo Gemini."

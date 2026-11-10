@@ -4,12 +4,12 @@ units:
     trigger_detail: "Android MAIN/LAUNCHER; MainActivity abre a lista de projetos e despacha rotas."
     source_anchors:
       - path: app/src/main/java/com/example/MainActivity.kt
-        line: 42
+        line: 50
       - path: app/src/main/java/com/example/SubTranslateApp.kt
         line: 8
     exported_signature:
       - method: "Activity MainActivity.onCreate(Bundle?)"
-        source_loc: "app/src/main/java/com/example/MainActivity.kt:44"
+        source_loc: "app/src/main/java/com/example/MainActivity.kt:52"
         stability: must_preserve
     dynamic_entrypoints:
       - target: "com.example.SubTranslateApp"
@@ -27,6 +27,8 @@ units:
         via: "rota processing/{id} e ProcessingScreen"
       - unit: subtitle_editor
         via: "rota editor/{id} e ReviewEditorScreen"
+      - unit: manual_translation
+        via: "rota manual/{id} e ManualTranslationScreen"
       - unit: subtitle_export
         via: "rota export/{id} e ExportScreen"
       - unit: settings
@@ -44,12 +46,12 @@ units:
     trigger_detail: "Lista de projetos; seleção, criação, configuração, exportação, configurações e exclusão."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/ProjectListScreen.kt
-        line: 60
+        line: 92
       - path: app/src/main/java/com/example/ui/viewmodel/ProjectViewModel.kt
-        line: 13
+        line: 18
     exported_signature:
       - method: "Composable ProjectListScreen(projects, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/ProjectListScreen.kt:60"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProjectListScreen.kt:92"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on:
@@ -59,6 +61,8 @@ units:
         via: "seleção de projeto não concluído"
       - unit: subtitle_editor
         via: "seleção de projeto concluído"
+      - unit: manual_translation
+        via: "seleção de projeto EXTRACT_ONLY concluído"
       - unit: settings
         via: "onSettingsClick"
     shared_refs:
@@ -67,18 +71,18 @@ units:
 
   - name: project_setup
     trigger: page
-    trigger_detail: "Seleção de vídeo, ROI, idiomas, FPS e modo de saída."
+    trigger_detail: "Rotas config/config_extract: seleção de vídeo, ROI, idiomas, FPS e modo de saída."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt
-        line: 86
+        line: 137
       - path: app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt
-        line: 42
+        line: 45
     exported_signature:
       - method: "Composable ProjectConfigScreen(uiState, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt:86"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProjectConfigScreen.kt:137"
         stability: must_preserve
       - method: "suspend ProjectConfigViewModel.createProject(): Long?"
-        source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:233"
+        source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectConfigViewModel.kt:317"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on:
@@ -95,12 +99,12 @@ units:
     trigger_detail: "Rota processing/{id}; acompanha estado e permite iniciar, pausar, retomar, cancelar, tentar novamente ou abrir editor."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/ProcessingScreen.kt
-        line: 56
+        line: 102
       - path: app/src/main/java/com/example/ui/viewmodel/ProcessingViewModel.kt
-        line: 18
+        line: 17
     exported_signature:
       - method: "Composable ProcessingScreen(project, pipelineState, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/ProcessingScreen.kt:56"
+        source_loc: "app/src/main/java/com/example/ui/screens/ProcessingScreen.kt:102"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on:
@@ -121,15 +125,15 @@ units:
     trigger_detail: "Intent ACTION_START/ACTION_STOP do foreground service não exportado."
     source_anchors:
       - path: app/src/main/java/com/example/data/service/SubtitleExtractionService.kt
-        line: 24
+        line: 25
       - path: app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt
-        line: 45
+        line: 48
     exported_signature:
       - method: "Service SubtitleExtractionService.onStartCommand(Intent?, Int, Int): Int"
         source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:32"
         stability: must_preserve
       - method: "suspend SubtitleExtractionPipeline.execute(Project, AppSettings): Result<List<SubtitleLine>>"
-        source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:96"
+        source_loc: "app/src/main/java/com/example/data/pipeline/SubtitleExtractionPipeline.kt:111"
         stability: must_preserve
     dynamic_entrypoints:
       - target: "com.example.data.service.SubtitleExtractionService"
@@ -157,12 +161,12 @@ units:
     trigger_detail: "Rota editor/{id}; revisão e edição das linhas extraídas."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/ReviewEditorScreen.kt
-        line: 96
+        line: 148
       - path: app/src/main/java/com/example/ui/viewmodel/ReviewEditorViewModel.kt
-        line: 28
+        line: 29
     exported_signature:
       - method: "Composable ReviewEditorScreen(projectId, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/ReviewEditorScreen.kt:96"
+        source_loc: "app/src/main/java/com/example/ui/screens/ReviewEditorScreen.kt:148"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on:
@@ -183,10 +187,10 @@ units:
     trigger_detail: "Rota export/{id}; grava SRT/VTT pelo Storage Access Framework e compartilha via FileProvider."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/ExportScreen.kt
-        line: 72
+        line: 100
     exported_signature:
       - method: "Composable ExportScreen(projectId, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:72"
+        source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:100"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on: []
@@ -197,13 +201,42 @@ units:
     trigger_detail: "Rota settings; alterações de parâmetros e glossário persistem em DataStore."
     source_anchors:
       - path: app/src/main/java/com/example/ui/screens/SettingsScreen.kt
-        line: 54
+        line: 129
     exported_signature:
       - method: "Composable SettingsScreen(settings, callbacks)"
-        source_loc: "app/src/main/java/com/example/ui/screens/SettingsScreen.kt:54"
+        source_loc: "app/src/main/java/com/example/ui/screens/SettingsScreen.kt:129"
         stability: must_preserve
     dynamic_entrypoints: []
     depends_on: []
     shared_refs:
       - module: settings_repository
-        used_fields: [settings, updateFps, updateCoverOriginal, updateFontSize, updateMaxCharsPerLine, updateGlossary]
+        used_fields: [settings, updateCoverOriginal, updateFontSize, updateMaxCharsPerLine, updateGlossary, updateFilterWatermarks, updateIgnoredTerms, updateTranslationEngine, updateGeminiApiKey, updateGeminiModel]
+
+  - name: manual_translation
+    trigger: page
+    trigger_detail: "Rota manual/{id}; exporta texto OCR para tradução externa e importa o resultado."
+    source_anchors:
+      - path: app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt
+        line: 102
+      - path: app/src/main/java/com/example/ui/viewmodel/ManualTranslationViewModel.kt
+        line: 27
+      - path: app/src/main/java/com/example/domain/util/ManualTranslationFile.kt
+        line: 24
+    exported_signature:
+      - method: "Composable ManualTranslationScreen(project, subtitleLines, uiState, callbacks)"
+        source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:102"
+        stability: must_preserve
+      - method: "ManualTranslationViewModel.importTranslation(String): Unit"
+        source_loc: "app/src/main/java/com/example/ui/viewmodel/ManualTranslationViewModel.kt:54"
+        stability: must_preserve
+    dynamic_entrypoints: []
+    depends_on:
+      - unit: subtitle_editor
+        via: "onOpenEditorClick"
+      - unit: subtitle_export
+        via: "onExportSubtitlesClick"
+    shared_refs:
+      - module: project_repository
+        used_fields: [observeProjectById]
+      - module: subtitle_repository
+        used_fields: [getLines, getLinesList, updateLines]

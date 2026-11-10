@@ -1,19 +1,24 @@
 unit: subtitle_export
 side_effects:
-  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:100"
-    effect: "Escreve legendas no documento selecionado pelo usuário em formato SRT."
+  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:127"
+    effect: "Escreve legendas no documento escolhido pelo usuário em formato SRT."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:125"
-    effect: "Escreve legendas no documento selecionado pelo usuário em formato WebVTT."
+  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:151"
+    effect: "Escreve legendas no documento escolhido pelo usuário em formato WebVTT."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:263"
-    effect: "Compartilha arquivo usando URI FileProvider e EXTRA_STREAM."
+  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:353"
+    effect: "Compartilha arquivo por FileProvider com URI e permissão temporária de leitura."
     must_preserve: true
 branches:
-  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:72"
-    condition: "Usuário escolhe um formato de exportação."
-    behavior: "Abre CreateDocument com MIME type e extensão adequados."
+  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:127"
+    condition: "Usuário escolhe SRT ou WebVTT."
+    behavior: "Abre CreateDocument com MIME type correspondente e serializa as linhas no formato selecionado."
     must_preserve: true
-error_paths: []
+error_paths:
+  - source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:143"
+    trigger: "Falha ao abrir ou gravar o documento de saída."
+    outcome: "Exibe toast de erro para a operação de salvamento."
+    contract: "O documento não é apresentado como salvo com sucesso."
+    must_preserve: true
 concurrency:
   model: coroutine

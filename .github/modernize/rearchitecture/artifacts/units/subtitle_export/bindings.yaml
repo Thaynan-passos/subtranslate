@@ -2,16 +2,22 @@ unit: subtitle_export
 bindings:
   - type: route-declaration
     name: "export/{id}"
-    source_loc: "app/src/main/java/com/example/MainActivity.kt:260"
+    source_loc: "app/src/main/java/com/example/MainActivity.kt:342"
     target: "ExportScreen"
     must_appear_in_target: true
     notes: "Rota associada ao ID do projeto."
   - type: convention
     name: "ActivityResultContracts.CreateDocument"
-    source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:100"
+    source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:127"
     target: "ExportScreen"
     must_appear_in_target: true
-    notes: "Há contratos de criação de documento para SRT e VTT."
+    notes: "Contrato de criação de documento para SRT; WebVTT usa MIME separado."
+  - type: convention
+    name: "ActivityResultContracts.CreateDocument(text/vtt)"
+    source_loc: "app/src/main/java/com/example/ui/screens/ExportScreen.kt:151"
+    target: "ExportScreen"
+    must_appear_in_target: true
+    notes: "Seleciona destino para WebVTT."
   - type: xml-config
     name: "FileProvider"
     source_loc: "app/src/main/AndroidManifest.xml:34"

@@ -1,0 +1,46 @@
+unit: manual_translation
+side_effects:
+  - source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:136"
+    effect: "Escreve o arquivo TXT de frases numeradas no URI escolhido pelo usuário."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:324"
+    effect: "Compartilha o arquivo TXT temporário por FileProvider com permissão temporária de leitura."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ManualTranslationViewModel.kt:66"
+    effect: "Persiste em Room as linhas cujo texto traduzido mudou após importação."
+    must_preserve: true
+branches:
+  - source_loc: "app/src/main/java/com/example/domain/util/ManualTranslationFile.kt:75"
+    condition: "O conteúdo importado contém timestamps SRT/VTT válidos."
+    behavior: "Interpreta os blocos de legenda e associa cada tradução à posição sequencial da linha."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/domain/util/ManualTranslationFile.kt:80"
+    condition: "O conteúdo não contém blocos de legenda, mas possui marcadores numéricos."
+    behavior: "Associa as traduções aos números [N] do arquivo; linhas de cabeçalho antes do primeiro marcador são ignoradas."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/domain/util/ManualTranslationFile.kt:83"
+    condition: "O conteúdo não contém timestamps nem marcadores."
+    behavior: "Interpreta linhas não vazias como traduções posicionais, ignorando linhas de comentário iniciadas por #."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/domain/util/ManualTranslationFile.kt:101"
+    condition: "Uma frase não tem tradução não vazia no conteúdo importado."
+    behavior: "Mantém a tradução atual da linha."
+    must_preserve: true
+error_paths:
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ManualTranslationViewModel.kt:61"
+    trigger: "O arquivo parseado não contém traduções."
+    outcome: "Mostra mensagem indicando que os marcadores [1], [2]... devem ser mantidos."
+    contract: "Nenhuma linha é atualizada."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ManualTranslationViewModel.kt:81"
+    trigger: "Falha ao carregar linhas, parsear o conteúdo ou persistir as alterações."
+    outcome: "Mostra mensagem de erro de importação e limpa isImporting."
+    contract: "Erro convertido para mensagem no estado da UI."
+    must_preserve: true
+  - source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:167"
+    trigger: "Arquivo importado excede 5 MB ou não pode ser aberto/lido."
+    outcome: "Mostra mensagem de erro de leitura."
+    contract: "O conteúdo inválido não é enviado para importação."
+    must_preserve: true
+concurrency:
+  model: coroutine

@@ -1,14 +1,14 @@
 unit: project_library
 side_effects:
-  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectViewModel.kt:24"
+  - source_loc: "app/src/main/java/com/example/ui/viewmodel/ProjectViewModel.kt:31"
     effect: "Exclusão de projeto é enviada ao ProjectRepository em coroutine do ViewModel."
     must_preserve: true
 branches:
-  - source_loc: "app/src/main/java/com/example/MainActivity.kt:106"
+  - source_loc: "app/src/main/java/com/example/MainActivity.kt:130"
     condition: "Item da lista selecionado."
-    behavior: "Projeto completo abre editor; demais estados abrem processamento."
+    behavior: "Projeto concluído EXTRACT_ONLY abre tradução manual; projeto concluído SRT_ONLY abre editor; demais estados abrem processamento."
     must_preserve: true
-  - source_loc: "app/src/main/java/com/example/ui/screens/ProjectListScreen.kt:60"
+  - source_loc: "app/src/main/java/com/example/ui/screens/ProjectListScreen.kt:92"
     condition: "Usuário escolhe criar projeto, abrir configurações, abrir projeto ou excluir."
     behavior: "Propaga cada ação para o callback fornecido pela Activity."
     must_preserve: true

@@ -3,17 +3,17 @@ contracts:
     unit: extraction_service
     type: sdk
     stability: must_preserve
-    source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:136"
+    source_loc: "app/src/main/java/com/example/data/service/SubtitleExtractionService.kt:34"
     contract:
-      method: "Intent action START/STOP"
-      path: "com.example.data.service.START; com.example.data.service.STOP"
-      request: "ACTION_START com extra_project_id: Long e extra_project_title: String; ACTION_STOP sem payload"
-      response: "Foreground service inicia ou cancela o job de processamento; Intent START retorna START_REDELIVER_INTENT"
-      error: "Projeto inexistente/erro no pipeline atualiza status do projeto para ERROR; concorrência em projeto diferente também grava estado ERROR."
+      method: "Intent actions START/STOP/PAUSE/RESUME"
+      path: "com.example.data.service.START; com.example.data.service.STOP; com.example.data.service.PAUSE; com.example.data.service.RESUME"
+      request: "ACTION_START recebe extra_project_id: Long e extra_project_title: String; PAUSE/RESUME recebem extra_project_id; STOP cancela a execução ativa."
+      response: "START inicia o foreground service e retorna START_REDELIVER_INTENT; STOP/PAUSE/RESUME retornam START_NOT_STICKY."
+      error: "Projeto ausente ou exceção na execução persiste status ERROR; tentativa de iniciar projeto diferente durante execução ativa persiste erro no projeto solicitado."
       auth: "Service não exportado; somente app pode iniciar."
     target_contract:
       method: "SubtitleExtractionService.onStartCommand(Intent?, Int, Int): Int"
-      notes: "Preservar ações, extras, semântica foreground, cancelamento e política de redelivery existentes."
+      notes: "Preservar ações/extras, foreground notification, tipos de foreground service por API, cancelamento/pausa/retomada, wake lock e política de redelivery."
     semantic_divergence: []
 
   - name: subtitle file export
@@ -31,4 +31,38 @@ contracts:
     target_contract:
       method: "ExportScreen composable com contratos CreateDocument para SRT/VTT"
       notes: "Preservar formatos, conteúdo, fluxos de seleção de destino e compartilhamento."
+    semantic_divergence: []
+
+  - name: Gemini generateContent API
+    unit: extraction_service
+    type: rest
+    stability: must_preserve
+    source_loc: "app/src/main/java/com/example/data/engine/GeminiTranslatorImpl.kt:101"
+    contract:
+      method: "POST"
+      path: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+      request: "JSON com systemInstruction.parts[].text, contents[].parts[].text e generationConfig {temperature: 0.2, maxOutputTokens: 1024}; autenticação pelo header x-goog-api-key."
+      response: "Texto traduzido lido de candidates[0].content.parts[].text."
+      error: "Timeout, DNS e I/O são convertidos em mensagens localizadas; códigos não-200 geram erro sanitizado. SmartHybridTranslator tenta fallback para ML Kit."
+      auth: "Chave Gemini configurada pelo usuário e enviada em x-goog-api-key."
+    target_contract:
+      method: "POST generateContent(model, systemInstruction, userText, generationConfig)"
+      notes: "Preservar endpoint versionado, cabeçalho de autenticação, formato JSON, parâmetros de geração, extração do texto e semântica de fallback."
+    semantic_divergence: []
+
+  - name: manual translation document exchange
+    unit: manual_translation
+    type: file
+    stability: must_preserve
+    source_loc: "app/src/main/java/com/example/ui/screens/ManualTranslationScreen.kt:136"
+    contract:
+      method: "Storage Access Framework CreateDocument/OpenDocument"
+      path: "text/plain; import também aceita conteúdo SRT, WebVTT e linhas simples"
+      request: "Exporta texto com marcadores de frase e metadados; import associa traduções por marcador ou, sem marcadores, pela ordem."
+      response: "Traduções aplicadas são gravadas nas linhas subtitle_lines do projeto."
+      error: "Arquivo sem traduções ou falha de parsing/armazenamento gera mensagem na tela; contagens de linhas ausentes e identificadores ignorados são informadas."
+      auth: "URI de documento concedido pelo Storage Access Framework."
+    target_contract:
+      method: "ManualTranslationScreen export/import via CreateDocument(text/plain) e OpenDocument"
+      notes: "Preservar o formato editável, compatibilidade de importação e correspondência/aplicação de traduções."
     semantic_divergence: []
