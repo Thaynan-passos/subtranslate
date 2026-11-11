@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.data.local.dao.ProjectDao
 import com.example.data.local.dao.SubtitleLineDao
 import com.example.data.local.dao.TranslationCacheDao
@@ -17,7 +19,7 @@ import com.example.data.local.entity.TranslationCacheEntity
         SubtitleLineEntity::class,
         TranslationCacheEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class SubTranslateDatabase : RoomDatabase() {
@@ -36,9 +38,18 @@ abstract class SubTranslateDatabase : RoomDatabase() {
                     context.applicationContext,
                     SubTranslateDatabase::class.java,
                     "subtranslate_database"
-                ).build()
+                ).addMigrations(MIGRATION_1_2).build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        /** Adiciona a fonte de captura (OCR ou áudio); projetos existentes continuam como OCR. */
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE projects ADD COLUMN captureSource TEXT NOT NULL DEFAULT 'OCR_VISUAL'"
+                )
             }
         }
     }

@@ -1,7 +1,9 @@
 package com.example.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
@@ -27,7 +29,9 @@ data class ProjectEntity(
     val roiLeft: Float = 0.05f,
     val roiTop: Float = 0.70f,
     val roiRight: Float = 0.95f,
-    val roiBottom: Float = 0.95f
+    val roiBottom: Float = 0.95f,
+    @ColumnInfo(defaultValue = "OCR_VISUAL")
+    val captureSource: String = CaptureSource.OCR_VISUAL.name
 ) {
     fun toDomain(linesCount: Int = 0): Project {
         return Project(
@@ -41,6 +45,7 @@ data class ProjectEntity(
             targetLanguage = targetLanguage,
             samplingFps = samplingFps,
             outputMode = try { OutputMode.valueOf(outputMode) } catch (_: Exception) { OutputMode.SRT_ONLY },
+            captureSource = try { CaptureSource.valueOf(captureSource) } catch (_: Exception) { CaptureSource.OCR_VISUAL },
             status = try { ProjectStatus.valueOf(status) } catch (_: Exception) { ProjectStatus.IDLE },
             progress = progress,
             currentStep = currentStep,
@@ -75,7 +80,8 @@ data class ProjectEntity(
                 roiLeft = project.roiLeft,
                 roiTop = project.roiTop,
                 roiRight = project.roiRight,
-                roiBottom = project.roiBottom
+                roiBottom = project.roiBottom,
+                captureSource = project.captureSource.name
             )
         }
     }

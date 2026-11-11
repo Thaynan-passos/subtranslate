@@ -1,6 +1,7 @@
 package com.example.di
 
 import android.content.Context
+import com.example.data.engine.GeminiAudioTranscriber
 import com.example.data.engine.GeminiTranslatorImpl
 import com.example.data.engine.MlKitOcrEngine
 import com.example.data.engine.MlKitTranslatorImpl
@@ -11,6 +12,7 @@ import com.example.data.repository.ProjectRepository
 import com.example.data.repository.SettingsRepository
 import com.example.data.repository.SubtitleRepository
 import com.example.domain.engine.OcrEngine
+import com.example.domain.engine.SpeechTranscriber
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +75,14 @@ class AppContainer(val context: Context) {
 
     val translator: Translator by translatorInstance
 
+    val speechTranscriber: SpeechTranscriber by lazy {
+        GeminiAudioTranscriber(
+            context = context,
+            apiKeyProvider = { _currentSettings.value.geminiApiKey },
+            modelProvider = { _currentSettings.value.geminiModel }
+        )
+    }
+
     fun closeEngines() {
         if (ocrEngineInstance.isInitialized()) ocrEngine.close()
         if (translatorInstance.isInitialized()) translator.close()
@@ -84,7 +94,8 @@ class AppContainer(val context: Context) {
             projectRepository = projectRepository,
             subtitleRepository = subtitleRepository,
             ocrEngine = ocrEngine,
-            translator = translator
+            translator = translator,
+            speechTranscriber = speechTranscriber
         )
     }
 }

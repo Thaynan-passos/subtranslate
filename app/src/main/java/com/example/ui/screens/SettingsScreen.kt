@@ -381,7 +381,7 @@ fun SettingsScreen(
                                     color = SecondaryContainerBlue.copy(alpha = 0.5f)
                                 ) {
                                     Text(
-                                        text = if (geminiApiKeyText.isNotBlank()) "Conectado • 182 ms" else "Não configurado",
+                                        text = if (geminiApiKeyText.isNotBlank()) "Chave configurada (pronta para uso)" else "Não configurado",
                                         color = SecondaryBlue,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace,

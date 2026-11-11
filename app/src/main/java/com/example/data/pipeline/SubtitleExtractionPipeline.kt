@@ -10,8 +10,10 @@ import com.example.data.repository.SubtitleRepository
 import com.example.data.service.SubtitleExtractionService
 import com.example.data.util.NotificationHelper
 import com.example.domain.engine.OcrEngine
+import com.example.domain.engine.SpeechTranscriber
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
@@ -52,7 +54,8 @@ class SubtitleExtractionPipeline(
     private val projectRepository: ProjectRepository,
     private val subtitleRepository: SubtitleRepository,
     private val ocrEngine: OcrEngine,
-    private val translator: Translator
+    private val translator: Translator,
+    private val speechTranscriber: SpeechTranscriber? = null
 ) {
 
     // Separate state flows for active observers
@@ -201,182 +204,192 @@ class SubtitleExtractionPipeline(
                 projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.05f, "Inicializando")
                 NotificationHelper.updateProgressNotification(context, project.title, "Preparando extração...", 5)
 
-                val fps = project.samplingFps.coerceIn(1, 10)
-                val intervalMs = (1000L / fps).coerceAtLeast(100L)
+                val isAudioSource = project.captureSource == CaptureSource.AUDIO_TRANSCRIPTION
+                val groupedLines: List<SubtitleLine> = if (isAudioSource) {
+                    // Fonte de áudio: transcrição com timestamps substitui o OCR + agrupamento temporal.
+                    transcribeAudioToLines(project)
+                } else {
+                    val fps = project.samplingFps.coerceIn(1, 10)
+                    val intervalMs = (1000L / fps).coerceAtLeast(100L)
 
-                // Step 1: Frame extraction and OCR with thumbnail diffing and empty-region detection.
-                val rawDetections = mutableListOf<RawFrameDetection>()
-                var lastThumb: IntArray? = null
-                var lastOcrText = ""
-                var lastConfidence = 0f
-                var lastOcrTimeMs = Long.MIN_VALUE
+                    // Step 1: Frame extraction and OCR with thumbnail diffing and empty-region detection.
+                    val rawDetections = mutableListOf<RawFrameDetection>()
+                    var lastThumb: IntArray? = null
+                    var lastOcrText = ""
+                    var lastConfidence = 0f
+                    var lastOcrTimeMs = Long.MIN_VALUE
 
-                var currentTimeMs = 0L
-                val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
-                var stepIndex = 0L
+                    var currentTimeMs = 0L
+                    val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
+                    var stepIndex = 0L
 
-                updateState(project.id) {
-                    it.copy(
-                        step = "Extraindo frames e detectando legendas (OCR)...",
-                        progress = 0.1f
-                    )
-                }
-
-                while (currentTimeMs < durationMs) {
-                    if (cancelledProjects.contains(project.id)) {
-                        throw CancellationException("Operação cancelada pelo usuário")
+                    updateState(project.id) {
+                        it.copy(
+                            step = "Extraindo frames e detectando legendas (OCR)...",
+                            progress = 0.1f
+                        )
                     }
-                    while (pausedProjects.contains(project.id)) {
-                        kotlinx.coroutines.delay(200)
+
+                    while (currentTimeMs < durationMs) {
                         if (cancelledProjects.contains(project.id)) {
                             throw CancellationException("Operação cancelada pelo usuário")
                         }
-                    }
-
-                    val frameMicros = currentTimeMs * 1000L
-                    val rawFrame = getScaledFrame(retriever, frameMicros, videoWidth, videoHeight)
-
-                    if (rawFrame != null) {
-                        var croppedBitmap: Bitmap? = null
-                        try {
-                            val frameW = rawFrame.width
-                            val frameH = rawFrame.height
-
-                            val cropLeft = (project.roiLeft * frameW).toInt().coerceIn(0, frameW - 1)
-                            val cropTop = (project.roiTop * frameH).toInt().coerceIn(0, frameH - 1)
-                            val cropRight = (project.roiRight * frameW).toInt().coerceIn(cropLeft + 1, frameW)
-                            val cropBottom = (project.roiBottom * frameH).toInt().coerceIn(cropTop + 1, frameH)
-                            val cropW = (cropRight - cropLeft).coerceAtLeast(1)
-                            val cropH = (cropBottom - cropTop).coerceAtLeast(1)
-
-                            val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
-                            croppedBitmap = crop
-                            val grayThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
-                            val currentThumb = ImagePreprocessor.createThumbnailRgb(crop, 96, 24)
-                            val stdDev = ImagePreprocessor.computeStandardDeviation(grayThumb)
-
-                            var detectedText: String
-                            var detectedConfidence: Float
-
-                            if (stdDev < 6.0f) {
-                                detectedText = ""
-                                detectedConfidence = 0f
-                                lastThumb = currentThumb
-                                lastOcrText = ""
-                                lastConfidence = 0f
-                                lastOcrTimeMs = currentTimeMs
-                            } else {
-                                val isSimilarToLast = lastThumb != null &&
-                                        ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f) &&
-                                        currentTimeMs - lastOcrTimeMs < 1000L
-
-                                if (isSimilarToLast) {
-                                    detectedText = lastOcrText
-                                    detectedConfidence = lastConfidence
-                                } else {
-                                    val ocrRes = try {
-                                        ocrEngine.recognizeText(crop, project.sourceLanguage)
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (_: Exception) {
-                                        failedOcrFrames++
-                                        null
-                                    }
-                                    val ocrText = ocrRes?.fullText.orEmpty()
-                                    detectedText = if (appSettings.filterWatermarks) {
-                                        WatermarkFilter.cleanText(
-                                            text = ocrText,
-                                            filterEnabled = true,
-                                            customIgnoredTerms = appSettings.ignoredTerms
-                                        )
-                                    } else {
-                                        ocrText
-                                    }
-                                    detectedText = OcrTextSanitizer.sanitize(detectedText, project.sourceLanguage)
-                                    detectedConfidence = ocrRes?.confidence ?: 0f
-
-                                    lastThumb = currentThumb
-                                    lastOcrText = detectedText
-                                    lastConfidence = detectedConfidence
-                                    lastOcrTimeMs = currentTimeMs
-                                }
+                        while (pausedProjects.contains(project.id)) {
+                            kotlinx.coroutines.delay(200)
+                            if (cancelledProjects.contains(project.id)) {
+                                throw CancellationException("Operação cancelada pelo usuário")
                             }
+                        }
 
-                            if (detectedText.isNotBlank()) {
-                                rawDetections.add(
-                                    RawFrameDetection(
-                                        timestampMs = currentTimeMs,
-                                        text = detectedText,
-                                        confidence = detectedConfidence
+                        val frameMicros = currentTimeMs * 1000L
+                        val rawFrame = getScaledFrame(retriever, frameMicros, videoWidth, videoHeight)
+
+                        if (rawFrame != null) {
+                            var croppedBitmap: Bitmap? = null
+                            try {
+                                val frameW = rawFrame.width
+                                val frameH = rawFrame.height
+
+                                val cropLeft = (project.roiLeft * frameW).toInt().coerceIn(0, frameW - 1)
+                                val cropTop = (project.roiTop * frameH).toInt().coerceIn(0, frameH - 1)
+                                val cropRight = (project.roiRight * frameW).toInt().coerceIn(cropLeft + 1, frameW)
+                                val cropBottom = (project.roiBottom * frameH).toInt().coerceIn(cropTop + 1, frameH)
+                                val cropW = (cropRight - cropLeft).coerceAtLeast(1)
+                                val cropH = (cropBottom - cropTop).coerceAtLeast(1)
+
+                                val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
+                                croppedBitmap = crop
+                                val grayThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
+                                val currentThumb = ImagePreprocessor.createThumbnailRgb(crop, 96, 24)
+                                val stdDev = ImagePreprocessor.computeStandardDeviation(grayThumb)
+
+                                var detectedText: String
+                                var detectedConfidence: Float
+
+                                if (stdDev < 6.0f) {
+                                    detectedText = ""
+                                    detectedConfidence = 0f
+                                    lastThumb = currentThumb
+                                    lastOcrText = ""
+                                    lastConfidence = 0f
+                                    lastOcrTimeMs = currentTimeMs
+                                } else {
+                                    val isSimilarToLast = lastThumb != null &&
+                                            ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f) &&
+                                            currentTimeMs - lastOcrTimeMs < 1000L
+
+                                    if (isSimilarToLast) {
+                                        detectedText = lastOcrText
+                                        detectedConfidence = lastConfidence
+                                    } else {
+                                        val ocrRes = try {
+                                            ocrEngine.recognizeText(crop, project.sourceLanguage)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (_: Exception) {
+                                            failedOcrFrames++
+                                            null
+                                        }
+                                        val ocrText = ocrRes?.fullText.orEmpty()
+                                        detectedText = if (appSettings.filterWatermarks) {
+                                            WatermarkFilter.cleanText(
+                                                text = ocrText,
+                                                filterEnabled = true,
+                                                customIgnoredTerms = appSettings.ignoredTerms
+                                            )
+                                        } else {
+                                            ocrText
+                                        }
+                                        detectedText = OcrTextSanitizer.sanitize(detectedText, project.sourceLanguage)
+                                        detectedConfidence = ocrRes?.confidence ?: 0f
+
+                                        lastThumb = currentThumb
+                                        lastOcrText = detectedText
+                                        lastConfidence = detectedConfidence
+                                        lastOcrTimeMs = currentTimeMs
+                                    }
+                                }
+
+                                if (detectedText.isNotBlank()) {
+                                    rawDetections.add(
+                                        RawFrameDetection(
+                                            timestampMs = currentTimeMs,
+                                            text = detectedText,
+                                            confidence = detectedConfidence
+                                        )
                                     )
+                                }
+                            } finally {
+                                if (croppedBitmap != null && croppedBitmap !== rawFrame && !croppedBitmap.isRecycled) {
+                                    croppedBitmap.recycle()
+                                }
+                                if (!rawFrame.isRecycled) rawFrame.recycle()
+                            }
+                        }
+
+                        stepIndex++
+                        currentTimeMs += intervalMs
+
+                        val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
+                            .coerceIn(0.1f, 0.6f)
+                        if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
+                            val latestDetected = rawDetections.lastOrNull()?.text ?: ""
+                            updateState(project.id) {
+                                it.copy(
+                                    progress = frameProgress,
+                                    currentSampleTimeMs = currentTimeMs,
+                                    extractedLinesCount = rawDetections.size,
+                                    failedOcrFramesCount = failedOcrFrames,
+                                    lastDetectedText = if (latestDetected.isNotBlank()) latestDetected else it.lastDetectedText
                                 )
                             }
-                        } finally {
-                            if (croppedBitmap != null && croppedBitmap !== rawFrame && !croppedBitmap.isRecycled) {
-                                croppedBitmap.recycle()
-                            }
-                            if (!rawFrame.isRecycled) rawFrame.recycle()
-                        }
-                    }
-
-                    stepIndex++
-                    currentTimeMs += intervalMs
-
-                    val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
-                        .coerceIn(0.1f, 0.6f)
-                    if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
-                        val latestDetected = rawDetections.lastOrNull()?.text ?: ""
-                        updateState(project.id) {
-                            it.copy(
-                                progress = frameProgress,
-                                currentSampleTimeMs = currentTimeMs,
-                                extractedLinesCount = rawDetections.size,
-                                failedOcrFramesCount = failedOcrFrames,
-                                lastDetectedText = if (latestDetected.isNotBlank()) latestDetected else it.lastDetectedText
+                            val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
+                                .toInt()
+                                .coerceIn(0, 100)
+                            projectRepository.updateProgress(
+                                project.id,
+                                ProjectStatus.PROCESSING.name,
+                                frameProgress,
+                                "OCR: $percent%"
                             )
+                            NotificationHelper.updateProgressNotification(context, project.title, "OCR: $percent%", (frameProgress * 100).toInt())
                         }
-                        val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
-                            .toInt()
-                            .coerceIn(0, 100)
-                        projectRepository.updateProgress(
-                            project.id,
-                            ProjectStatus.PROCESSING.name,
-                            frameProgress,
-                            "OCR: $percent%"
-                        )
-                        NotificationHelper.updateProgressNotification(context, project.title, "OCR: $percent%", (frameProgress * 100).toInt())
                     }
-                }
 
-                if (failedOcrFrames > 0 && rawDetections.isEmpty()) {
-                    throw IllegalStateException(
-                        "O OCR falhou em $failedOcrFrames amostras e nenhuma legenda pôde ser detectada."
+                    if (failedOcrFrames > 0 && rawDetections.isEmpty()) {
+                        throw IllegalStateException(
+                            "O OCR falhou em $failedOcrFrames amostras e nenhuma legenda pôde ser detectada."
+                        )
+                    }
+
+                    // Step 2: Temporal Speech Grouping
+                    updateState(project.id) {
+                        it.copy(
+                            step = "Agrupando falas e refinando linha do tempo...",
+                            progress = 0.65f
+                        )
+                    }
+                    projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.65f, "Agrupamento temporal")
+                    NotificationHelper.updateProgressNotification(context, project.title, "Agrupando falas...", 65)
+
+                    val grouper = TemporalSpeechGrouper(
+                        similarityThreshold = appSettings.textSimilarityThreshold,
+                        minDurationMs = appSettings.minSpeechDurationMs,
+                        sampleIntervalMs = intervalMs,
+                        minConsecutiveFrames = if (fps == 1) 1 else 2,
+                        videoDurationMs = durationMs,
+                        filterWatermarks = appSettings.filterWatermarks,
+                        ignoredTerms = appSettings.ignoredTerms
                     )
+                    grouper.groupDetections(project.id, rawDetections)
                 }
-
-                // Step 2: Temporal Speech Grouping
-                updateState(project.id) {
-                    it.copy(
-                        step = "Agrupando falas e refinando linha do tempo...",
-                        progress = 0.65f
-                    )
-                }
-                projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.65f, "Agrupamento temporal")
-                NotificationHelper.updateProgressNotification(context, project.title, "Agrupando falas...", 65)
-
-                val grouper = TemporalSpeechGrouper(
-                    similarityThreshold = appSettings.textSimilarityThreshold,
-                    minDurationMs = appSettings.minSpeechDurationMs,
-                    sampleIntervalMs = intervalMs,
-                    minConsecutiveFrames = if (fps == 1) 1 else 2,
-                    videoDurationMs = durationMs,
-                    filterWatermarks = appSettings.filterWatermarks,
-                    ignoredTerms = appSettings.ignoredTerms
-                )
-                val groupedLines = grouper.groupDetections(project.id, rawDetections)
                 if (groupedLines.isEmpty()) {
                     throw IllegalStateException(
-                        "Nenhuma legenda foi detectada. Verifique a região de interesse e as configurações de amostragem e tente novamente."
+                        if (isAudioSource) {
+                            "Nenhuma fala foi detectada no áudio do vídeo."
+                        } else {
+                            "Nenhuma legenda foi detectada. Verifique a região de interesse e as configurações de amostragem e tente novamente."
+                        }
                     )
                 }
 
@@ -417,12 +430,17 @@ class SubtitleExtractionPipeline(
                         }
                     }
 
-                    // Clean out any residual watermark elements before sending to translation
-                    val cleanedOriginalText = WatermarkFilter.cleanText(
-                        text = line.originalText,
-                        filterEnabled = appSettings.filterWatermarks,
-                        customIgnoredTerms = appSettings.ignoredTerms
-                    )
+                    // Clean out any residual watermark elements before sending to translation.
+                    // Texto vindo do áudio não tem marca d'água visual, então não passa pelo filtro.
+                    val cleanedOriginalText = if (isAudioSource) {
+                        line.originalText.trim()
+                    } else {
+                        WatermarkFilter.cleanText(
+                            text = line.originalText,
+                            filterEnabled = appSettings.filterWatermarks,
+                            customIgnoredTerms = appSettings.ignoredTerms
+                        )
+                    }
 
                     if (cleanedOriginalText.isBlank()) {
                         // Entire line was watermark or promotional text - skip it
@@ -430,10 +448,15 @@ class SubtitleExtractionPipeline(
                     }
 
                     // Sanitiza o texto original para eliminar ruídos visuais de OCR e apóstrofos espúrios
-                    val sanitizedOriginalText = OcrTextSanitizer.sanitize(
-                        text = cleanedOriginalText,
-                        sourceLanguage = project.sourceLanguage
-                    )
+                    // (desnecessário para transcrições de áudio, que não têm ruído de OCR).
+                    val sanitizedOriginalText = if (isAudioSource) {
+                        cleanedOriginalText
+                    } else {
+                        OcrTextSanitizer.sanitize(
+                            text = cleanedOriginalText,
+                            sourceLanguage = project.sourceLanguage
+                        )
+                    }
 
                     var translatedText = ""
                     var isLineFlagged = line.isFlagged
@@ -598,6 +621,91 @@ class SubtitleExtractionPipeline(
         }
     }
 
+    /**
+     * Transcreve o áudio do vídeo em [SubtitleLine]s (texto original, sem tradução).
+     * Pausa e cancelamento são respeitados entre os blocos de áudio.
+     */
+    private suspend fun transcribeAudioToLines(project: Project): List<SubtitleLine> {
+        val transcriber = speechTranscriber
+            ?: throw IllegalStateException("A transcrição de áudio não está disponível nesta instalação.")
+
+        updateState(project.id) {
+            it.copy(step = "Extraindo áudio e transcrevendo falas com Gemini IA...", progress = AUDIO_PROGRESS_START)
+        }
+        projectRepository.updateProgress(
+            project.id,
+            ProjectStatus.PROCESSING.name,
+            AUDIO_PROGRESS_START,
+            "Transcrição do áudio"
+        )
+        NotificationHelper.updateProgressNotification(
+            context,
+            project.title,
+            "Transcrevendo áudio...",
+            (AUDIO_PROGRESS_START * 100).toInt()
+        )
+
+        val segments = transcriber.transcribe(
+            videoUri = project.videoUri,
+            sourceLanguage = project.sourceLanguage
+        ) { done, total ->
+            awaitIfPausedOrCancelled(project.id)
+            val progress = AUDIO_PROGRESS_START +
+                (AUDIO_PROGRESS_SPAN * (done.toFloat() / total.coerceAtLeast(1).toFloat()))
+            updateState(project.id) {
+                it.copy(
+                    progress = progress,
+                    step = "Transcrevendo áudio ($done/$total)..."
+                )
+            }
+            projectRepository.updateProgress(
+                project.id,
+                ProjectStatus.PROCESSING.name,
+                progress,
+                "Transcrição: $done/$total"
+            )
+            NotificationHelper.updateProgressNotification(
+                context,
+                project.title,
+                "Transcrição: $done/$total",
+                (progress * 100).toInt()
+            )
+        }
+        awaitIfPausedOrCancelled(project.id)
+
+        val lines = segments.mapIndexed { idx, segment ->
+            SubtitleLine(
+                projectId = project.id,
+                index = idx + 1,
+                startTimeMs = segment.startMs,
+                endTimeMs = segment.endMs,
+                originalText = segment.text,
+                translatedText = "",
+                confidence = if (segment.isTimingSuspect) SUSPECT_TIMING_CONFIDENCE else 1.0f,
+                isFlagged = segment.isTimingSuspect
+            )
+        }
+        updateState(project.id) {
+            it.copy(
+                extractedLinesCount = lines.size,
+                lastDetectedText = lines.lastOrNull()?.originalText ?: it.lastDetectedText
+            )
+        }
+        return lines
+    }
+
+    private suspend fun awaitIfPausedOrCancelled(projectId: Long) {
+        if (cancelledProjects.contains(projectId)) {
+            throw CancellationException("Operação cancelada pelo usuário")
+        }
+        while (pausedProjects.contains(projectId)) {
+            kotlinx.coroutines.delay(PAUSE_POLL_INTERVAL_MS)
+            if (cancelledProjects.contains(projectId)) {
+                throw CancellationException("Operação cancelada pelo usuário")
+            }
+        }
+    }
+
     private fun getScaledFrame(
         retriever: MediaMetadataRetriever,
         timeUs: Long,
@@ -620,5 +728,12 @@ class SubtitleExtractionPipeline(
             targetWidth,
             targetHeight
         )
+    }
+
+    private companion object {
+        const val AUDIO_PROGRESS_START = 0.1f
+        const val AUDIO_PROGRESS_SPAN = 0.5f
+        const val SUSPECT_TIMING_CONFIDENCE = 0.5f
+        const val PAUSE_POLL_INTERVAL_MS = 200L
     }
 }

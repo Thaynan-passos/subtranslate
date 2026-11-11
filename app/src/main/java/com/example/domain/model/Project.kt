@@ -21,6 +21,14 @@ enum class OutputMode {
     EXTRACT_ONLY
 }
 
+enum class CaptureSource {
+    /** Lê legendas já gravadas na imagem do vídeo (OCR). */
+    OCR_VISUAL,
+
+    /** Transcreve as falas da faixa de áudio usando o Google Gemini. */
+    AUDIO_TRANSCRIPTION
+}
+
 data class RegionOfInterest(
     val left: Float = 0.05f,   // normalized 0.0 to 1.0
     val top: Float = 0.70f,
@@ -39,6 +47,7 @@ data class Project(
     val targetLanguage: String = "pt",
     val samplingFps: Int = 2,
     val outputMode: OutputMode = OutputMode.SRT_ONLY,
+    val captureSource: CaptureSource = CaptureSource.OCR_VISUAL,
     val status: ProjectStatus = ProjectStatus.IDLE,
     val progress: Float = 0f,
     val currentStep: String = "",

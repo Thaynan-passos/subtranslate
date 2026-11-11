@@ -207,15 +207,18 @@ fun ReviewEditorScreen(
                     isPlayerPlaying = isPlaying
                     currentPlaybackPosition = player.currentPosition
                 }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    Toast.makeText(context, "Erro no player de vídeo: ${error.message}", Toast.LENGTH_SHORT).show()
+                }
             }
             player.addListener(listener)
             exoPlayer = player
-        }
 
-        onDispose {
-            exoPlayer?.release()
-            exoPlayer = null
-        }
+            onDispose {
+                player.release()
+                exoPlayer = null
+            }
     }
 
     // Pause player on lifecycle ON_STOP
@@ -334,6 +337,11 @@ fun ReviewEditorScreen(
                                             ViewGroup.LayoutParams.MATCH_PARENT
                                         )
                                         useController = false
+                                    }
+                                },
+                                update = { view ->
+                                    if (view.player != exoPlayer) {
+                                        view.player = exoPlayer
                                     }
                                 },
                                 modifier = Modifier.fillMaxSize()

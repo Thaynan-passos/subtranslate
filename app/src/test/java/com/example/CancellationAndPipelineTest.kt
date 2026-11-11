@@ -75,10 +75,10 @@ class CancellationAndPipelineTest {
     }
 
     private class TestTranslationCacheDao : TranslationCacheDao {
-        override suspend fun getTranslation(hash: String, sourceLanguage: String, targetLanguage: String): TranslationCacheEntity? = null
-        override suspend fun insert(cache: TranslationCacheEntity) = Unit
-        override suspend fun deleteOldest(limit: Int) = Unit
-        override suspend fun getCacheCount(): Int = 0
+        override suspend fun getBestCachedTranslation(text: String, sourceLang: String, targetLang: String): String? = null
+        override suspend fun getCachedTranslation(text: String, sourceLang: String, targetLang: String, engine: String): String? = null
+        override suspend fun insertCache(cache: TranslationCacheEntity) = Unit
+        override suspend fun deleteCache(text: String, sourceLang: String, targetLang: String) = Unit
     }
 
     private class TestTranslator : Translator {
