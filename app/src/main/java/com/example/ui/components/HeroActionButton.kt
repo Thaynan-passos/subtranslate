@@ -16,7 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.ripple
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -73,7 +73,7 @@ fun HeroActionButton(
             .clickable(
                 enabled = enabled && !isLoading,
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(color = Color.White),
+                indication = ripple(color = Color.White),
                 onClick = onClick
             )
             .testTag(tag),
