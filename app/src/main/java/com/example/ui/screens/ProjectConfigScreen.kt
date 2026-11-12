@@ -103,6 +103,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.OutputMode
 import com.example.domain.model.RegionOfInterest
 import com.example.domain.util.LanguageHelper
@@ -141,6 +142,7 @@ fun ProjectConfigScreen(
     onLanguagesChanged: (String, String) -> Unit,
     onSamplingFpsChanged: (Int) -> Unit,
     onOutputModeChanged: (OutputMode) -> Unit,
+    onCaptureSourceChanged: (CaptureSource) -> Unit = {},
     onStartExtraction: () -> Unit,
     onBackClick: () -> Unit
 ) {
@@ -332,9 +334,80 @@ fun ProjectConfigScreen(
             }
 
             // ==========================================
-            // 2. Interactive Video OCR Canvas & Bounding Box
+            // Fonte de Captura (OCR Visual vs Áudio com IA)
             // ==========================================
             if (uiState.videoUri != null) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = SurfaceContainerLow,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Método de Extração",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurfaceText
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = uiState.captureSource == CaptureSource.OCR_VISUAL,
+                                onClick = { onCaptureSourceChanged(CaptureSource.OCR_VISUAL) },
+                                label = { Text("OCR na Imagem") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.DocumentScanner,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                shape = CircleShape,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = PrimaryContainerViolet,
+                                    selectedLabelColor = OnPrimaryContainerViolet,
+                                    containerColor = SurfaceContainerHigh,
+                                    labelColor = OnSurfaceVariantText
+                                ),
+                                border = null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = uiState.captureSource == CaptureSource.AUDIO_TRANSCRIPTION,
+                                onClick = { onCaptureSourceChanged(CaptureSource.AUDIO_TRANSCRIPTION) },
+                                label = { Text("Áudio (Gemini IA)") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                shape = CircleShape,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = PrimaryContainerViolet,
+                                    selectedLabelColor = OnPrimaryContainerViolet,
+                                    containerColor = SurfaceContainerHigh,
+                                    labelColor = OnSurfaceVariantText
+                                ),
+                                border = null,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // 2. Interactive Video OCR Canvas & Bounding Box
+            // ==========================================
+            if (uiState.videoUri != null && uiState.captureSource == CaptureSource.OCR_VISUAL) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
@@ -511,9 +584,69 @@ fun ProjectConfigScreen(
                 }
             }
 
+            if (uiState.videoUri != null && uiState.captureSource == CaptureSource.AUDIO_TRANSCRIPTION) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = SurfaceContainerLowest,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryViolet.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = PrimaryFixedDim,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Transcrição Multimodal de Áudio",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
+                            )
+                        }
+                        Text(
+                            text = "A faixa de áudio do vídeo será extraída e enviada ao Google Gemini IA. As falas, pausas e sincronização temporal serão transcritas automaticamente com máxima fidelidade ao diálogo, sem depender da área visual da tela.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OnSurfaceVariantText,
+                            lineHeight = 20.sp
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = SurfaceContainerHigh.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = SecondaryBlue,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Requer chave de API do Gemini configurada em Configurações.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceVariantText
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // ==========================================
             // 3. OCR Sampling Rate (Segmented Pill Selector)
             // ==========================================
+            if (uiState.captureSource == CaptureSource.OCR_VISUAL) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -730,6 +863,7 @@ fun ProjectConfigScreen(
                         onCheckedChange = { fullFrameFallbackEnabled = it }
                     )
                 }
+            }
             }
 
             // ==========================================

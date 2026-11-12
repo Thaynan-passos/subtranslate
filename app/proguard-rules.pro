@@ -1,21 +1,21 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Regras ProGuard / R8 para SubTranslate
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Manter numeração de linha para stacktraces legíveis
+-keepattributes SourceFile,LineNumberTable
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Room Database: entidades, DAOs e banco
+-keep class com.example.data.local.entity.** { *; }
+-keep class com.example.data.local.dao.** { *; }
+-keep class com.example.data.local.SubTranslateDatabase { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Modelos de domínio e serialização
+-keep class com.example.domain.model.** { *; }
+-keep class com.example.domain.engine.** { *; }
+
+# Serialização JSON (org.json / Gemini API)
+-keepclassmembers class * {
+    @org.json.* <fields>;
+}
+
+# Suporte ao Media3 / ExoPlayer
+-keep class androidx.media3.** { *; }

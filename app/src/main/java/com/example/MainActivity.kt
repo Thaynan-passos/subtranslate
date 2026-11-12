@@ -192,6 +192,7 @@ class MainActivity : ComponentActivity() {
                                 onLanguagesChanged = { src, tgt -> configViewModel.setLanguages(src, tgt) },
                                 onSamplingFpsChanged = { fps -> configViewModel.setSamplingFps(fps) },
                                 onOutputModeChanged = { mode -> configViewModel.setOutputMode(mode) },
+                                onCaptureSourceChanged = { source -> configViewModel.setCaptureSource(source) },
                                 onStartExtraction = {
                                     scope.launch {
                                         val newId = configViewModel.createProject()

@@ -5,6 +5,7 @@ import com.example.data.repository.SettingsRepository
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
 import com.example.domain.util.BuiltInGlossary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -130,5 +131,27 @@ class TranslatorIntegrationTest {
         // Deve capturar o erro e realizar o fallback transparente para o ML Kit
         val result = hybrid.translate("What's up buddy?", "en", "pt")
         assertEquals("Fallback MLKit: What's up buddy?", result)
+    }
+
+    @Test(expected = CancellationException::class)
+    fun smartHybridTranslator_propagatesCancellationExceptionWithoutFallback() = runBlocking {
+        val mlKit = FakeTranslator("MLKit") { "Fallback MLKit: $it" }
+        val cancellingGemini = FakeTranslator("Gemini") {
+            throw CancellationException("Cancelado pelo usuário")
+        }
+
+        val hybrid = SmartHybridTranslator(
+            mlKitTranslator = mlKit,
+            geminiTranslator = cancellingGemini,
+            settingsProvider = {
+                AppSettings(
+                    translationEngine = "gemini",
+                    geminiApiKey = "fake-api-key"
+                )
+            }
+        )
+
+        // Deve propagar a CancellationException e NÃO engolir o cancelamento chamando o ML Kit
+        hybrid.translate("Cancelling...", "en", "pt")
     }
 }

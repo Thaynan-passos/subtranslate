@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.repository.ProjectRepository
 import com.example.domain.engine.OcrEngine
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.RegionOfInterest
@@ -37,6 +38,7 @@ data class ProjectConfigUiState(
     val targetLang: String = "pt",
     val samplingFps: Int = 2,
     val outputMode: OutputMode = OutputMode.SRT_ONLY,
+    val captureSource: CaptureSource = CaptureSource.OCR_VISUAL,
     val isAutoDetectingRoi: Boolean = false,
     val isCreatingProject: Boolean = false,
     val error: String? = null
@@ -314,6 +316,10 @@ class ProjectConfigViewModel(
         _uiState.value = _uiState.value.copy(outputMode = mode)
     }
 
+    fun setCaptureSource(source: CaptureSource) {
+        _uiState.value = _uiState.value.copy(captureSource = source)
+    }
+
     suspend fun createProject(): Long? {
         if (_uiState.value.isCreatingProject) return null
         val state = _uiState.value
@@ -334,6 +340,7 @@ class ProjectConfigViewModel(
                 targetLanguage = state.targetLang,
                 samplingFps = state.samplingFps,
                 outputMode = state.outputMode,
+                captureSource = state.captureSource,
                 roiLeft = state.roi.left,
                 roiTop = state.roi.top,
                 roiRight = state.roi.right,

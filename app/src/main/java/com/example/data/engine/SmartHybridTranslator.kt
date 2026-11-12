@@ -3,6 +3,7 @@ package com.example.data.engine
 import android.util.Log
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
+import kotlinx.coroutines.CancellationException
 
 /**
  * Tradutor híbrido inteligente que seleciona o melhor motor de tradução com base nas configurações
@@ -73,6 +74,8 @@ class SmartHybridTranslator(
                     glossary = glossary,
                     bypassCache = bypassCache
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val safeMsg = GeminiTranslatorImpl.redactApiKey(e.message, settings.geminiApiKey)
                 try {

@@ -219,6 +219,9 @@ fun ReviewEditorScreen(
                 player.release()
                 exoPlayer = null
             }
+        } else {
+            onDispose { }
+        }
     }
 
     // Pause player on lifecycle ON_STOP
