@@ -200,8 +200,12 @@ class MlKitTranslatorImpl(
                     val replacement = if (targetTerm.isNotBlank()) targetTerm.trim() else sourceTerm.trim()
                     val escapedReplacement = Matcher.quoteReplacement(replacement)
 
-                    // Safe word boundary with lookarounds supporting CJK, symbols and alphanumeric
-                    val pattern = "(?i)(?<![\\p{L}\\p{N}])$escapedSource(?![\\p{L}\\p{N}])"
+                    val isCjk = sourceTerm.any { it.code in 0x4E00..0x9FFF || it.code in 0x3040..0x30FF }
+                    val pattern = if (isCjk) {
+                        "(?i)$escapedSource"
+                    } else {
+                        "(?i)(?<![\\p{L}\\p{N}])$escapedSource(?![\\p{L}\\p{N}])"
+                    }
                     processed = processed.replace(Regex(pattern), escapedReplacement)
                 } catch (_: Exception) {
                     // Fail safely so invalid regex or term does not crash the pipeline
@@ -223,7 +227,12 @@ class MlKitTranslatorImpl(
             var idx = 0
             for ((src, tgt) in sortedEntries) {
                 val escapedSource = Regex.escape(src.trim())
-                val pattern = "(?i)(?<![\\p{L}\\p{N}])$escapedSource(?![\\p{L}\\p{N}])"
+                val isCjk = src.any { it.code in 0x4E00..0x9FFF || it.code in 0x3040..0x30FF }
+                val pattern = if (isCjk) {
+                    "(?i)$escapedSource"
+                } else {
+                    "(?i)(?<![\\p{L}\\p{N}])$escapedSource(?![\\p{L}\\p{N}])"
+                }
                 val regex = Regex(pattern)
                 if (regex.containsMatchIn(prepared)) {
                     prepared = regex.replace(prepared) {

@@ -867,7 +867,7 @@ fun ReviewEditorScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val sec = splitPosSec.toFloatOrNull()
+                        val sec = splitPosSec.trim().replace(',', '.').toFloatOrNull()
                         if (sec != null) {
                             val splitMs = (sec * 1000).toLong()
                             onSplitLine(targetLine.id, splitMs)
@@ -1293,8 +1293,8 @@ fun EditSubtitleDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val sSec = startSec.toFloatOrNull() ?: 0f
-                    val eSec = endSec.toFloatOrNull() ?: 0f
+                    val sSec = startSec.trim().replace(',', '.').toFloatOrNull() ?: (line.startTimeMs / 1000f)
+                    val eSec = endSec.trim().replace(',', '.').toFloatOrNull() ?: (line.endTimeMs / 1000f)
                     val sMs = (sSec * 1000).toLong().coerceIn(0L, videoDurationMs)
                     val eMs = (eSec * 1000).toLong().coerceIn(sMs, videoDurationMs)
                     onSave(original, translated, sMs, eMs, saveToMemory)

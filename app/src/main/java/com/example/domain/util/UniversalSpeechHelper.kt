@@ -8,11 +8,11 @@ object UniversalSpeechHelper {
     private val UNIVERSAL_TOKEN_REGEX = Regex(
         "(?i)^(" +
                 // Risadas: haha, haaaa, hehe, hihi, kkkk, rsrs, fufufu, jajaja
-                "h+a+[ha]*|h+e+[he]*|h+i+[hi]*|k{2,}|(rs){2,}|f+u+[fu]*|j+a+[ja]*|" +
+                "h+a+[ha]*|h+e{2,}|(he){2,}[he]*|h+i+[hi]*|k{2,}|(rs){2,}|f+u+[fu]*|j+a+[ja]*|" +
                 // Sons vocálicos arrastados e gemidos: aah, aaah, ooh, oooh, uuh, eeh, umm, mmm
-                "a+h+|h+a+|o+h+|h+o+|u+h+|h+u+|e+h+|h+e+|" +
+                "a+h+|h+a+|o+h+|h+o+|u+h+|h+u+|e+h+|h+e{2,}|" +
                 "a{2,}|o{2,}|u{2,}|e{2,}|i{2,}|" +
-                "u+m+|m{2,}[a-z]*|n+g+h*|a*r+g+h+|u*r+g+h+|" +
+                "u+m+|m{2,}[h]*|m+h+|n+g+h*|a*r+g+h+|u*r+g+h+|" +
                 // Suspiros, surpresa, choque e reações universais
                 "w+o+w+|w+h+o+a+|y+a+y+|o+u+c+h+|k+y+a+[a]*|n+y+a+[a]*|" +
                 "p+f+f+t*|s+h{2,}|p+h+e+w+|u+g+h+|y+u+c+k+|y+u+m+|" +

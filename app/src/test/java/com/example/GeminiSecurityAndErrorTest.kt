@@ -107,5 +107,32 @@ class GeminiSecurityAndErrorTest {
         val result = hybrid.translate("Hello test", "en", "pt")
         assertEquals("MLKit: Hello test", result)
     }
+
+    @Test
+    fun smartHybridTranslator_circuitBreakerTripsOnRateLimitOrAuthError() = runBlocking {
+        var geminiCallCount = 0
+        val mlKit = StubTranslator("MLKit") { "MLKit: $it" }
+        val rateLimitedGemini = StubTranslator("Gemini") {
+            geminiCallCount++
+            throw IllegalStateException("Limite de cota ou requisições da API do Google Gemini excedido (código HTTP 429).")
+        }
+
+        val hybrid = SmartHybridTranslator(
+            mlKitTranslator = mlKit,
+            geminiTranslator = rateLimitedGemini,
+            settingsProvider = {
+                AppSettings(translationEngine = "gemini", geminiApiKey = "fake-key")
+            }
+        )
+
+        val first = hybrid.translate("Fala 1", "en", "pt")
+        assertEquals("MLKit: Fala 1", first)
+        assertEquals(1, geminiCallCount)
+
+        // Na próxima fala, o circuit breaker deve pular o Gemini imediatamente
+        val second = hybrid.translate("Fala 2", "en", "pt")
+        assertEquals("MLKit: Fala 2", second)
+        assertEquals(1, geminiCallCount) // Não chamou Gemini novamente
+    }
 }
 

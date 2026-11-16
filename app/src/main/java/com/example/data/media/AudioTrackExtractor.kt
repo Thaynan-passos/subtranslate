@@ -152,12 +152,21 @@ class AudioTrackExtractor(private val context: Context) {
         var bytes = 0L
             private set
         private var lastSampleUs = startUs
+        private var lastWrittenPtsUs = -1L
 
         init {
             muxer.start()
         }
 
         fun write(buffer: ByteBuffer, info: MediaCodec.BufferInfo, absoluteTimeUs: Long) {
+            val safePts = if (info.presentationTimeUs <= lastWrittenPtsUs) {
+                lastWrittenPtsUs + 1_000L
+            } else {
+                info.presentationTimeUs
+            }
+            info.presentationTimeUs = safePts
+            lastWrittenPtsUs = safePts
+
             muxer.writeSampleData(track, buffer, info)
             samples++
             bytes += info.size

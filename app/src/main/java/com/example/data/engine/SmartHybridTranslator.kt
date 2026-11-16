@@ -15,6 +15,9 @@ class SmartHybridTranslator(
     private val settingsProvider: () -> AppSettings
 ) : Translator {
 
+    @Volatile
+    private var geminiCircuitTripped: Boolean = false
+
     override val name: String
         get() {
             val settings = settingsProvider()
@@ -63,7 +66,7 @@ class SmartHybridTranslator(
         bypassCache: Boolean
     ): String {
         val settings = settingsProvider()
-        val preferGemini = settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()
+        val preferGemini = !geminiCircuitTripped && settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()
 
         if (preferGemini) {
             try {
@@ -77,6 +80,15 @@ class SmartHybridTranslator(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                val errorMsg = e.message.orEmpty()
+                if (errorMsg.contains("cota") || errorMsg.contains("429") || errorMsg.contains("401") || errorMsg.contains("403")) {
+                    geminiCircuitTripped = true
+                    try {
+                        Log.w("SmartHybridTranslator", "Circuit breaker ativado para o Gemini nesta sessão. Redirecionando direto para ML Kit.")
+                    } catch (_: Throwable) {
+                        println("[SmartHybridTranslator] Circuit breaker ativado para o Gemini nesta sessão. Redirecionando direto para ML Kit.")
+                    }
+                }
                 val safeMsg = GeminiTranslatorImpl.redactApiKey(e.message, settings.geminiApiKey)
                 try {
                     Log.w("SmartHybridTranslator", "Falha na tradução via Gemini, executando fallback para ML Kit: $safeMsg")
@@ -105,6 +117,7 @@ class SmartHybridTranslator(
     }
 
     override fun close() {
+        geminiCircuitTripped = false
         geminiTranslator.close()
         mlKitTranslator.close()
     }

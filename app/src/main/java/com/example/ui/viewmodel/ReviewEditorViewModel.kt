@@ -146,6 +146,7 @@ class ReviewEditorViewModel(
             }
 
             subtitleRepository.updateLineTimestamps(lineId, validStart, validEnd)
+            reindexLines()
         }
     }
 

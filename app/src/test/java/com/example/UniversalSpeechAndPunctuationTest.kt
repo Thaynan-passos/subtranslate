@@ -67,6 +67,10 @@ class UniversalSpeechAndPunctuationTest {
         assertFalse(UniversalSpeechHelper.isUniversalExpression("Onde você vai?"))
         assertFalse(UniversalSpeechHelper.isUniversalExpression("I don't think so."))
         assertFalse(UniversalSpeechHelper.isUniversalExpression("Wait for me!"))
+        // Pronomes ingleses ("He") e siglas ("MMA") não devem ser falso positivo
+        assertFalse(UniversalSpeechHelper.isUniversalExpression("He..."))
+        assertFalse(UniversalSpeechHelper.isUniversalExpression("He?!"))
+        assertFalse(UniversalSpeechHelper.isUniversalExpression("MMA"))
     }
 
     @Test
@@ -129,6 +133,21 @@ class UniversalSpeechAndPunctuationTest {
         val simulatedTranslated = "${placeholders.first().placeholder}, você finalmente está aqui!"
         val restored = MlKitTranslatorImpl.restorePlaceholders(simulatedTranslated, placeholders)
         assertEquals("Ohhhhh, você finalmente está aqui!", restored)
+    }
+
+    @Test
+    fun testCjkGlossaryMatchingWithoutSpaces() {
+        // Em japonês e chinês as frases são contínuas sem espaço
+        val japaneseText = "私は学生です"
+        val glossary = mapOf("学生" to "estudante")
+
+        val (prepared, placeholders) = MlKitTranslatorImpl.preparePlaceholders(japaneseText, glossary)
+        assertEquals(1, placeholders.size)
+        assertEquals("学生", placeholders.first().sourceTerm)
+        assertEquals("estudante", placeholders.first().targetTerm)
+
+        val applied = MlKitTranslatorImpl.applyGlossary(japaneseText, glossary)
+        assertEquals("私はestudanteです", applied)
     }
 }
 
