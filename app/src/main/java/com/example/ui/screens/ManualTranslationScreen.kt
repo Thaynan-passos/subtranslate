@@ -109,7 +109,8 @@ fun ManualTranslationScreen(
     onClearUserMessage: () -> Unit,
     onOpenEditorClick: () -> Unit,
     onExportSubtitlesClick: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    modelTag: String = "Gemini 2.5 Flash"
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -184,7 +185,8 @@ fun ManualTranslationScreen(
         topBar = {
             SubTranslateTopBar(
                 subtitle = "Extrair Texto e Traduzir",
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                modelTag = modelTag
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }

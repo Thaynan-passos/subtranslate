@@ -4,6 +4,10 @@ import android.util.Log
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Tradutor híbrido inteligente que seleciona o melhor motor de tradução com base nas configurações
@@ -12,21 +16,37 @@ import kotlinx.coroutines.CancellationException
 class SmartHybridTranslator(
     private val mlKitTranslator: Translator,
     private val geminiTranslator: Translator,
-    private val settingsProvider: () -> AppSettings
+    private val settingsProvider: () -> AppSettings,
+    private val backgroundScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : Translator {
 
     @Volatile
     private var geminiCircuitTripped: Boolean = false
 
+    @Volatile
+    private var lastGeminiConfigKey: String = ""
+
     override val name: String
         get() {
             val settings = settingsProvider()
             return if (settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()) {
-                "Google Gemini (IA) com Fallback Offline"
+                if (settings.autoFallbackToMlKit) {
+                    "Google Gemini (IA) com Fallback Offline"
+                } else {
+                    "Google Gemini (IA)"
+                }
             } else {
                 mlKitTranslator.name
             }
         }
+
+    private fun syncCircuitBreaker(settings: AppSettings) {
+        val currentConfigKey = "${settings.geminiApiKey.trim()}|${settings.geminiModel.trim()}"
+        if (currentConfigKey != lastGeminiConfigKey) {
+            lastGeminiConfigKey = currentConfigKey
+            geminiCircuitTripped = false
+        }
+    }
 
     override suspend fun isModelAvailable(sourceLanguage: String, targetLanguage: String): Boolean {
         val settings = settingsProvider()
@@ -46,11 +66,17 @@ class SmartHybridTranslator(
         val settings = settingsProvider()
         val preferGemini = settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()
         if (preferGemini) {
-            // Tenta pré-baixar o modelo ML Kit de forma não-bloqueante para garantir fallback offline resiliente
-            try {
-                mlKitTranslator.downloadModelIfNeeded(sourceLanguage, targetLanguage, requireWifi = false) { }
-            } catch (_: Exception) {
-                // Falha no pré-carregamento do fallback offline não bloqueia o uso primário do Gemini
+            if (settings.autoFallbackToMlKit) {
+                // Pré-carrega o modelo de fallback em segundo plano sem bloquear o pipeline principal.
+                backgroundScope.launch {
+                    try {
+                        mlKitTranslator.downloadModelIfNeeded(sourceLanguage, targetLanguage, requireWifi = false) { }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Falha no pré-carregamento do fallback offline não bloqueia o uso primário do Gemini
+                    }
+                }
             }
             onProgress(1.0f)
             return true
@@ -66,7 +92,10 @@ class SmartHybridTranslator(
         bypassCache: Boolean
     ): String {
         val settings = settingsProvider()
-        val preferGemini = !geminiCircuitTripped && settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()
+        syncCircuitBreaker(settings)
+        val preferGemini = !geminiCircuitTripped &&
+            settings.translationEngine == "gemini" &&
+            settings.geminiApiKey.isNotBlank()
 
         if (preferGemini) {
             try {
@@ -80,23 +109,10 @@ class SmartHybridTranslator(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val errorMsg = e.message.orEmpty()
-                if (errorMsg.contains("cota") || errorMsg.contains("429") || errorMsg.contains("401") || errorMsg.contains("403")) {
-                    geminiCircuitTripped = true
-                    try {
-                        Log.w("SmartHybridTranslator", "Circuit breaker ativado para o Gemini nesta sessão. Redirecionando direto para ML Kit.")
-                    } catch (_: Throwable) {
-                        println("[SmartHybridTranslator] Circuit breaker ativado para o Gemini nesta sessão. Redirecionando direto para ML Kit.")
-                    }
+                val safeMsg = handleGeminiFailure(e, settings)
+                if (!settings.autoFallbackToMlKit) {
+                    throw IllegalStateException(safeMsg.ifBlank { "Falha na tradução via Google Gemini." })
                 }
-                val safeMsg = GeminiTranslatorImpl.redactApiKey(e.message, settings.geminiApiKey)
-                try {
-                    Log.w("SmartHybridTranslator", "Falha na tradução via Gemini, executando fallback para ML Kit: $safeMsg")
-                } catch (_: Throwable) {
-                    // Fallback para stdout em ambientes de teste unitário onde android.util.Log não está mockado
-                    println("[SmartHybridTranslator] Falha na tradução via Gemini, executando fallback para ML Kit: $safeMsg")
-                }
-                // Fallback automático para o motor offline caso haja erro de rede ou chave
                 return mlKitTranslator.translate(
                     text = text,
                     sourceLanguage = sourceLanguage,
@@ -105,6 +121,14 @@ class SmartHybridTranslator(
                     bypassCache = bypassCache
                 )
             }
+        }
+
+        if (settings.translationEngine == "gemini" &&
+            settings.geminiApiKey.isNotBlank() &&
+            geminiCircuitTripped &&
+            !settings.autoFallbackToMlKit
+        ) {
+            throw IllegalStateException("A API do Google Gemini falhou anteriormente nesta sessão e o fallback automático está desativado.")
         }
 
         return mlKitTranslator.translate(
@@ -116,8 +140,90 @@ class SmartHybridTranslator(
         )
     }
 
+    override suspend fun translateBatch(
+        texts: List<String>,
+        sourceLanguage: String,
+        targetLanguage: String,
+        glossary: Map<String, String>,
+        bypassCache: Boolean
+    ): List<String> {
+        val settings = settingsProvider()
+        syncCircuitBreaker(settings)
+        val preferGemini = !geminiCircuitTripped &&
+            settings.translationEngine == "gemini" &&
+            settings.geminiApiKey.isNotBlank()
+
+        if (preferGemini) {
+            try {
+                return geminiTranslator.translateBatch(
+                    texts = texts,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    glossary = glossary,
+                    bypassCache = bypassCache
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val safeMsg = handleGeminiFailure(e, settings)
+                if (!settings.autoFallbackToMlKit) {
+                    throw IllegalStateException(safeMsg.ifBlank { "Falha na tradução em lote via Google Gemini." })
+                }
+                return mlKitTranslator.translateBatch(
+                    texts = texts,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    glossary = glossary,
+                    bypassCache = bypassCache
+                )
+            }
+        }
+
+        if (settings.translationEngine == "gemini" &&
+            settings.geminiApiKey.isNotBlank() &&
+            geminiCircuitTripped &&
+            !settings.autoFallbackToMlKit
+        ) {
+            throw IllegalStateException("A API do Google Gemini falhou anteriormente nesta sessão e o fallback automático está desativado.")
+        }
+
+        return mlKitTranslator.translateBatch(
+            texts = texts,
+            sourceLanguage = sourceLanguage,
+            targetLanguage = targetLanguage,
+            glossary = glossary,
+            bypassCache = bypassCache
+        )
+    }
+
+    private fun handleGeminiFailure(e: Exception, settings: AppSettings): String {
+        val errorMsg = e.message.orEmpty()
+        if (errorMsg.contains("cota") ||
+            errorMsg.contains("429") ||
+            errorMsg.contains("401") ||
+            errorMsg.contains("403") ||
+            errorMsg.contains("inválida") ||
+            errorMsg.contains("permissões")
+        ) {
+            geminiCircuitTripped = true
+            logWarning("Circuit breaker ativado para o Gemini nesta sessão.")
+        }
+        val safeMsg = GeminiTranslatorImpl.redactApiKey(e.message, settings.geminiApiKey)
+        logWarning("Falha na tradução via Gemini: $safeMsg")
+        return safeMsg
+    }
+
+    private fun logWarning(message: String) {
+        try {
+            Log.w("SmartHybridTranslator", message)
+        } catch (_: Throwable) {
+            println("[SmartHybridTranslator] $message")
+        }
+    }
+
     override fun close() {
         geminiCircuitTripped = false
+        lastGeminiConfigKey = ""
         geminiTranslator.close()
         mlKitTranslator.close()
     }

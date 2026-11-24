@@ -28,7 +28,7 @@ data class RawFrameDetection(
 data class AppSettings(
     val defaultFps: Int = 2,
     val minSpeechDurationMs: Long = 300L,
-    val textSimilarityThreshold: Float = 0.80f,
+    val textSimilarityThreshold: Float = DEFAULT_SIMILARITY_THRESHOLD,
     val maxCharsPerLine: Int = 42,
     val coverOriginalOverlay: Boolean = true,
     val overlayColorHex: String = "#E6000000",
@@ -42,5 +42,14 @@ data class AppSettings(
     val ignoredTerms: List<String> = emptyList(),
     val translationEngine: String = "gemini",
     val geminiApiKey: String = "",
-    val geminiModel: String = "gemini-2.5-flash"
-)
+    val geminiModel: String = DEFAULT_GEMINI_MODEL,
+    val autoFallbackToMlKit: Boolean = true,
+    val enableHighContrastOcr: Boolean = true,
+    val enableOtsuOcr: Boolean = true,
+    val enableFullFrameFallbackOcr: Boolean = true
+) {
+    companion object {
+        const val DEFAULT_SIMILARITY_THRESHOLD = 0.80f
+        const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+    }
+}

@@ -2,6 +2,7 @@ package com.example.data.engine
 
 import android.graphics.Bitmap
 import com.example.domain.engine.OcrEngine
+import com.example.domain.engine.OcrPreprocessingOptions
 import com.example.domain.model.BoundingBox
 import com.example.domain.model.OcrResult
 import com.example.domain.model.OcrTextBlock
@@ -42,10 +43,18 @@ class MlKitOcrEngine : OcrEngine {
     }
 
     override suspend fun recognizeText(bitmap: Bitmap, languageCode: String): OcrResult {
+        return recognizeText(bitmap, languageCode, OcrPreprocessingOptions())
+    }
+
+    override suspend fun recognizeText(
+        bitmap: Bitmap,
+        languageCode: String,
+        options: OcrPreprocessingOptions
+    ): OcrResult {
         var lastException: Exception? = null
         for (attempt in 1..2) {
             try {
-                return recognizeWithVariants(bitmap, languageCode)
+                return recognizeWithVariants(bitmap, languageCode, options)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 lastException = e
@@ -57,7 +66,11 @@ class MlKitOcrEngine : OcrEngine {
         throw lastException ?: IllegalStateException("Falha no reconhecimento de texto OCR após 2 tentativas.")
     }
 
-    private suspend fun recognizeWithVariants(bitmap: Bitmap, languageCode: String): OcrResult {
+    private suspend fun recognizeWithVariants(
+        bitmap: Bitmap,
+        languageCode: String,
+        options: OcrPreprocessingOptions
+    ): OcrResult {
         val enhanced = ImagePreprocessor.enhanceForOcr(bitmap)
         try {
             val originalResult = recognizeOnce(enhanced, languageCode, bitmap.width, bitmap.height)
@@ -65,18 +78,20 @@ class MlKitOcrEngine : OcrEngine {
 
             var bestResult = originalResult
 
-            val contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
-            try {
-                val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
-                bestResult = chooseBetterResult(originalResult, contrastResult)
-            } finally {
-                if (!contrast.isRecycled && contrast !== enhanced && contrast !== bitmap) {
-                    contrast.recycle()
+            if (options.enableHighContrast) {
+                val contrast = ImagePreprocessor.createHighContrastVariant(enhanced)
+                try {
+                    val contrastResult = recognizeOnce(contrast, languageCode, bitmap.width, bitmap.height)
+                    bestResult = chooseBetterResult(originalResult, contrastResult)
+                } finally {
+                    if (!contrast.isRecycled && contrast !== enhanced && contrast !== bitmap) {
+                        contrast.recycle()
+                    }
                 }
             }
 
-            if (bestResult.fullText.isBlank() ||
-                bestResult.fullText.count { it.isLetterOrDigit() } <= 2
+            if (options.enableOtsuBinarization && (bestResult.fullText.isBlank() ||
+                bestResult.fullText.count { it.isLetterOrDigit() } <= 2)
             ) {
                 val binary = ImagePreprocessor.createOtsuVariant(enhanced)
                 try {
@@ -209,9 +224,9 @@ class MlKitOcrEngine : OcrEngine {
             .replace("\r\n", "\n")
             .replace("\r", "\n")
             // Only remove isolated punctuation / noise symbols surrounded by spaces or edges
-            .replace("(?<=\\s|^)[|~_\\^#@\\[\\]{}]+(?=\\s|$)".toRegex(), " ")
+            .replace(NOISE_SYMBOLS_REGEX, " ")
             // Normalize multiple whitespaces
-            .replace("[ \t]+".toRegex(), " ")
+            .replace(HORIZONTAL_SPACE_REGEX, " ")
             .lines()
             .map { it.trim() }
             .filter { line ->
@@ -223,5 +238,10 @@ class MlKitOcrEngine : OcrEngine {
     override fun close() {
         recognizers.values.forEach(TextRecognizer::close)
         recognizers.clear()
+    }
+
+    private companion object {
+        val NOISE_SYMBOLS_REGEX = Regex("(?<=\\s|^)[|~_\\^#@\\[\\]{}]+(?=\\s|$)")
+        val HORIZONTAL_SPACE_REGEX = Regex("[ \t]+")
     }
 }

@@ -16,6 +16,17 @@ interface Translator {
     ): String
 
     /**
+     * Traduz um lote de frases preservando a ordem de entrada.
+     */
+    suspend fun translateBatch(
+        texts: List<String>,
+        sourceLanguage: String,
+        targetLanguage: String,
+        glossary: Map<String, String> = emptyMap(),
+        bypassCache: Boolean = false
+    ): List<String> = texts.map { translate(it, sourceLanguage, targetLanguage, glossary, bypassCache) }
+
+    /**
      * Checks if the required language model is downloaded.
      */
     suspend fun isModelAvailable(sourceLanguage: String, targetLanguage: String): Boolean

@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.os.Build
+import android.os.PowerManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -8,8 +11,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,45 +29,36 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatterySaver
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.NetworkPing
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.OfflineBolt
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsSuggest
 import androidx.compose.material.icons.filled.Spellcheck
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -80,14 +74,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -95,16 +90,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
+import com.example.data.util.NotificationHelper
 import com.example.domain.model.AppSettings
 import com.example.ui.components.SubTranslateTopBar
-import com.example.ui.theme.ErrorCrimson
 import com.example.ui.theme.OnPrimaryContainerViolet
 import com.example.ui.theme.OnPrimaryFixed
-import com.example.ui.theme.OnSecondaryContainerBlue
 import com.example.ui.theme.OnSurfaceText
 import com.example.ui.theme.OnSurfaceVariantText
-import com.example.ui.theme.OutlineBorder
 import com.example.ui.theme.OutlineVariantBorder
 import com.example.ui.theme.PrimaryContainerViolet
 import com.example.ui.theme.PrimaryFixed
@@ -119,10 +111,15 @@ import com.example.ui.theme.SurfaceContainer
 import com.example.ui.theme.SurfaceContainerHigh
 import com.example.ui.theme.SurfaceContainerHighest
 import com.example.ui.theme.SurfaceContainerLow
-import com.example.ui.theme.SurfaceContainerLowest
-import com.example.ui.theme.TertiaryIndigo
+import com.example.ui.theme.WarningAmber
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private val AVAILABLE_GEMINI_MODELS = listOf(
+    "gemini-2.5-flash" to "2.5 Flash",
+    "gemini-2.5-flash-lite" to "2.5 Flash-Lite",
+    "gemini-2.5-pro" to "2.5 Pro"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -137,8 +134,11 @@ fun SettingsScreen(
     onTranslationEngineChanged: (String) -> Unit,
     onGeminiApiKeyChanged: (String) -> Unit,
     onGeminiModelChanged: (String) -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onAutoFallbackChanged: (Boolean) -> Unit = {},
+    onTestGeminiConnection: (suspend (apiKey: String, model: String) -> Result<Long>)? = null
 ) {
+    val context = LocalContext.current
     var glossaryText by remember { mutableStateOf(settings.glossaryRaw) }
     var ignoredTermsText by remember { mutableStateOf(settings.ignoredTermsRaw) }
     var geminiApiKeyText by remember { mutableStateOf(settings.geminiApiKey) }
@@ -146,13 +146,38 @@ fun SettingsScreen(
     var isEditingApiKey by remember { mutableStateOf(false) }
     var isTestingConnection by remember { mutableStateOf(false) }
     var connectionTestResult by remember { mutableStateOf<String?>(null) }
-    var slangPersonaEnabled by remember { mutableStateOf(true) }
-    var syncLengthEnabled by remember { mutableStateOf(true) }
-    var autoFallbackEnabled by remember { mutableStateOf(true) }
+    var connectionTestSuccess by remember { mutableStateOf<Boolean?>(null) }
     var fontSize by remember(settings.subtitleFontSizeSp) { mutableIntStateOf(settings.subtitleFontSizeSp) }
     var maxCharsPerLine by remember(settings.maxCharsPerLine) { mutableIntStateOf(settings.maxCharsPerLine.coerceIn(20, 80)) }
 
+    val latestSettings by rememberUpdatedState(settings)
+    val latestGlossaryText by rememberUpdatedState(glossaryText)
+    val latestIgnoredTermsText by rememberUpdatedState(ignoredTermsText)
+    val latestGeminiApiKeyText by rememberUpdatedState(geminiApiKeyText)
+    val latestOnGlossaryChanged by rememberUpdatedState(onGlossaryChanged)
+    val latestOnIgnoredTermsChanged by rememberUpdatedState(onIgnoredTermsChanged)
+    val latestOnGeminiApiKeyChanged by rememberUpdatedState(onGeminiApiKeyChanged)
+
     val scope = rememberCoroutineScope()
+
+    val isGeminiSelected = settings.translationEngine == "gemini"
+    val activeModelTag = if (isGeminiSelected && settings.geminiApiKey.isNotBlank()) {
+        settings.geminiModel
+    } else {
+        "ML Kit Offline"
+    }
+
+    val isBatteryUnrestricted = remember(context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+        } else {
+            true
+        }
+    }
+    val hasNotificationsPermission = remember(context) {
+        NotificationHelper.hasNotificationPermission(context)
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -165,7 +190,7 @@ fun SettingsScreen(
         label = "pulseAlpha"
     )
 
-    // Sync from DataStore only when the local value hasn't diverged due to active user typing
+    // Sync from DataStore only when local field is empty (initial async load)
     LaunchedEffect(settings.glossaryRaw) {
         if (glossaryText.isEmpty() && settings.glossaryRaw.isNotEmpty()) {
             glossaryText = settings.glossaryRaw
@@ -184,39 +209,39 @@ fun SettingsScreen(
 
     // Debounce saving glossary text
     LaunchedEffect(glossaryText) {
-        if (glossaryText != settings.glossaryRaw) {
+        if (glossaryText != latestSettings.glossaryRaw) {
             delay(500)
-            onGlossaryChanged(glossaryText)
+            latestOnGlossaryChanged(glossaryText)
         }
     }
 
     // Debounce saving ignored terms
     LaunchedEffect(ignoredTermsText) {
-        if (ignoredTermsText != settings.ignoredTermsRaw) {
+        if (ignoredTermsText != latestSettings.ignoredTermsRaw) {
             delay(500)
-            onIgnoredTermsChanged(ignoredTermsText)
+            latestOnIgnoredTermsChanged(ignoredTermsText)
         }
     }
 
     // Debounce saving Gemini API key
     LaunchedEffect(geminiApiKeyText) {
-        if (geminiApiKeyText != settings.geminiApiKey) {
+        if (geminiApiKeyText != latestSettings.geminiApiKey) {
             delay(500)
-            onGeminiApiKeyChanged(geminiApiKeyText)
+            latestOnGeminiApiKeyChanged(geminiApiKeyText)
         }
     }
 
     // Flush any pending unsaved text edits immediately when leaving SettingsScreen
     DisposableEffect(Unit) {
         onDispose {
-            if (glossaryText != settings.glossaryRaw) {
-                onGlossaryChanged(glossaryText)
+            if (latestGlossaryText != latestSettings.glossaryRaw) {
+                latestOnGlossaryChanged(latestGlossaryText)
             }
-            if (ignoredTermsText != settings.ignoredTermsRaw) {
-                onIgnoredTermsChanged(ignoredTermsText)
+            if (latestIgnoredTermsText != latestSettings.ignoredTermsRaw) {
+                latestOnIgnoredTermsChanged(latestIgnoredTermsText)
             }
-            if (geminiApiKeyText != settings.geminiApiKey) {
-                onGeminiApiKeyChanged(geminiApiKeyText)
+            if (latestGeminiApiKeyText != latestSettings.geminiApiKey) {
+                latestOnGeminiApiKeyChanged(latestGeminiApiKeyText)
             }
         }
     }
@@ -226,7 +251,8 @@ fun SettingsScreen(
         topBar = {
             SubTranslateTopBar(
                 subtitle = "Motores de IA e Glossário",
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                modelTag = activeModelTag
             )
         }
     ) { paddingValues ->
@@ -238,11 +264,12 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Interactive Feedback Toast / Banner
+            // Interactive Feedback Banner (Real connection test result)
             AnimatedVisibility(visible = connectionTestResult != null) {
+                val isOk = connectionTestSuccess == true
                 Surface(
-                    shape = CircleShape,
-                    color = PrimaryContainerViolet,
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isOk) PrimaryContainerViolet else MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -250,9 +277,9 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.CheckCircle,
+                            imageVector = if (isOk) Icons.Default.CheckCircle else Icons.Default.Warning,
                             contentDescription = null,
-                            tint = PrimaryFixed,
+                            tint = if (isOk) SuccessEmerald else MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -260,14 +287,75 @@ fun SettingsScreen(
                             text = connectionTestResult ?: "",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = OnPrimaryContainerViolet
+                            color = if (isOk) OnPrimaryContainerViolet else MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
                 }
             }
 
             // ==========================================
-            // 1. Primary Engine Card: Google Gemini 1.5 Flash
+            // 0. Engine Selection Card
+            // ==========================================
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = SurfaceContainerLow,
+                border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Motor de Tradução Preferido",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurfaceText
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = isGeminiSelected,
+                            onClick = { onTranslationEngineChanged("gemini") },
+                            label = { Text("Google Gemini IA") },
+                            leadingIcon = {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            shape = CircleShape,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = PrimaryContainerViolet,
+                                selectedLabelColor = OnPrimaryContainerViolet,
+                                containerColor = SurfaceContainerHigh,
+                                labelColor = OnSurfaceVariantText
+                            ),
+                            border = null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = !isGeminiSelected,
+                            onClick = { onTranslationEngineChanged("mlkit") },
+                            label = { Text("ML Kit Offline") },
+                            leadingIcon = {
+                                Icon(Icons.Default.OfflineBolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            shape = CircleShape,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = PrimaryContainerViolet,
+                                selectedLabelColor = OnPrimaryContainerViolet,
+                                containerColor = SurfaceContainerHigh,
+                                labelColor = OnSurfaceVariantText
+                            ),
+                            border = null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // ==========================================
+            // 1. Primary Engine Card: Google Gemini IA
             // ==========================================
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -311,7 +399,7 @@ fun SettingsScreen(
                                     color = OnSurfaceText
                                 )
                                 Text(
-                                    text = "gemini-1.5-flash-latest",
+                                    text = settings.geminiModel,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = PrimaryFixedDim
@@ -321,7 +409,7 @@ fun SettingsScreen(
 
                         Surface(
                             shape = CircleShape,
-                            color = PrimaryContainerViolet.copy(alpha = 0.25f)
+                            color = if (isGeminiSelected) PrimaryContainerViolet.copy(alpha = 0.25f) else SurfaceContainerHigh
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -331,16 +419,47 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(PrimaryFixedDim)
-                                        .alpha(pulseAlpha)
+                                        .background(if (isGeminiSelected) PrimaryFixedDim else OnSurfaceVariantText)
+                                        .alpha(if (isGeminiSelected) pulseAlpha else 1f)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Ativo Primário",
-                                    color = PrimaryFixedDim,
+                                    text = if (isGeminiSelected) "Ativo" else "Inativo",
+                                    color = if (isGeminiSelected) PrimaryFixedDim else OnSurfaceVariantText,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    // Model Selector Chips
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Modelo Gemini",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = OnSurfaceVariantText
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AVAILABLE_GEMINI_MODELS.forEach { (modelId, label) ->
+                                FilterChip(
+                                    selected = settings.geminiModel == modelId,
+                                    onClick = { onGeminiModelChanged(modelId) },
+                                    label = { Text(label) },
+                                    shape = CircleShape,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = PrimaryContainerViolet,
+                                        selectedLabelColor = OnPrimaryContainerViolet,
+                                        containerColor = SurfaceContainerHigh,
+                                        labelColor = OnSurfaceVariantText
+                                    ),
+                                    border = null
                                 )
                             }
                         }
@@ -381,7 +500,7 @@ fun SettingsScreen(
                                     color = SecondaryContainerBlue.copy(alpha = 0.5f)
                                 ) {
                                     Text(
-                                        text = if (geminiApiKeyText.isNotBlank()) "Chave configurada (pronta para uso)" else "Não configurado",
+                                        text = if (geminiApiKeyText.isNotBlank()) "Configurada" else "Não configurada",
                                         color = SecondaryBlue,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -397,7 +516,11 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (geminiApiKeyText.isNotBlank()) "••••••••••••${geminiApiKeyText.takeLast(4)}" else "••••••••••••",
+                                    text = if (geminiApiKeyText.isNotBlank()) {
+                                        "••••••••••••${geminiApiKeyText.takeLast(4)}"
+                                    } else {
+                                        "Nenhuma chave informada"
+                                    },
                                     fontSize = 13.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
@@ -405,19 +528,34 @@ fun SettingsScreen(
                                 )
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    // Test Connection Button
+                                    // Real Connection Test Button
                                     Surface(
                                         shape = CircleShape,
                                         color = SurfaceContainerHigh,
                                         modifier = Modifier
                                             .clip(CircleShape)
-                                            .clickable {
+                                            .clickable(enabled = !isTestingConnection) {
                                                 scope.launch {
                                                     isTestingConnection = true
-                                                    delay(600)
+                                                    connectionTestResult = null
+                                                    if (geminiApiKeyText.trim() != latestSettings.geminiApiKey) {
+                                                        latestOnGeminiApiKeyChanged(geminiApiKeyText)
+                                                    }
+                                                    val testResult = onTestGeminiConnection?.invoke(
+                                                        geminiApiKeyText,
+                                                        settings.geminiModel
+                                                    ) ?: Result.failure(
+                                                        IllegalStateException("Teste de conexão indisponível neste contexto.")
+                                                    )
                                                     isTestingConnection = false
-                                                    connectionTestResult = "Latência medida: 182 ms (Excelente)"
-                                                    delay(4000)
+                                                    testResult.onSuccess { latencyMs ->
+                                                        connectionTestSuccess = true
+                                                        connectionTestResult = "Conexão confirmada (${settings.geminiModel}): ${latencyMs} ms"
+                                                    }.onFailure { err ->
+                                                        connectionTestSuccess = false
+                                                        connectionTestResult = err.message ?: "Falha ao testar conexão com o Gemini."
+                                                    }
+                                                    delay(5000)
                                                     connectionTestResult = null
                                                 }
                                             }
@@ -499,69 +637,6 @@ fun SettingsScreen(
                             }
                         }
                     }
-
-                    // Engine Tuning: Slangs & Timing Constraints
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Gírias e Expressões Naturais",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OnSurfaceText
-                                )
-                                Text(
-                                    text = "Converte phrasal verbs e contrações em diálogos realistas em português brasileiro",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OnSurfaceVariantText
-                                )
-                            }
-                            Switch(
-                                checked = slangPersonaEnabled,
-                                onCheckedChange = { slangPersonaEnabled = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = OnPrimaryFixed,
-                                    checkedTrackColor = PrimaryFixedDim,
-                                    uncheckedThumbColor = OnSurfaceVariantText,
-                                    uncheckedTrackColor = SurfaceContainerHighest
-                                )
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Preservar Sincronia Labial",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OnSurfaceText
-                                )
-                                Text(
-                                    text = "Limita o tamanho do texto com base no tempo de fala e caracteres por linha",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OnSurfaceVariantText
-                                )
-                            }
-                            Switch(
-                                checked = syncLengthEnabled,
-                                onCheckedChange = { syncLengthEnabled = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = OnPrimaryFixed,
-                                    checkedTrackColor = PrimaryFixedDim,
-                                    uncheckedThumbColor = OnSurfaceVariantText,
-                                    uncheckedTrackColor = SurfaceContainerHighest
-                                )
-                            )
-                        }
-                    }
                 }
             }
 
@@ -610,7 +685,7 @@ fun SettingsScreen(
                                     color = OnSurfaceText
                                 )
                                 Text(
-                                    text = "Tradução neural no próprio dispositivo (off-line)",
+                                    text = "Modelos baixados sob demanda por par de idiomas (off-line)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariantText
                                 )
@@ -633,7 +708,7 @@ fun SettingsScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Pronto",
+                                    text = "Offline",
                                     color = SecondaryFixed,
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
@@ -643,49 +718,7 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Offline Model Info Bar
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = SurfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Translate,
-                                    contentDescription = null,
-                                    tint = PrimaryFixedDim,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Inglês para Português",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = OnSurfaceText
-                                )
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = SurfaceContainerHigh
-                            ) {
-                                Text(
-                                    text = "32,4 MB",
-                                    color = OnSurfaceText,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Auto Fallback Switch
+                    // Auto Fallback Switch (real setting)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -699,14 +732,14 @@ fun SettingsScreen(
                                 color = OnSurfaceText
                             )
                             Text(
-                                text = "Alterna instantaneamente se a internet oscilar ou atingir o limite da API",
+                                text = "Alterna para o ML Kit local se a internet oscilar ou atingir a cota da API",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OnSurfaceVariantText
                             )
                         }
                         Switch(
-                            checked = autoFallbackEnabled,
-                            onCheckedChange = { autoFallbackEnabled = it },
+                            checked = settings.autoFallbackToMlKit,
+                            onCheckedChange = onAutoFallbackChanged,
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = OnPrimaryFixed,
                                 checkedTrackColor = PrimaryFixedDim,
@@ -719,7 +752,7 @@ fun SettingsScreen(
             }
 
             // ==========================================
-            // 3. Glossary & Rules Manager Section
+            // 3. Glossary & Watermark Filter Section
             // ==========================================
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -757,13 +790,13 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "Glossário e Regras",
+                                    text = "Glossário e Termos Protegidos",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = OnSurfaceText
                                 )
                                 Text(
-                                    text = "Proteja nomes próprios e termos específicos",
+                                    text = "Defina traduções fixas ou proteja nomes próprios contra tradução",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariantText
                                 )
@@ -775,7 +808,7 @@ fun SettingsScreen(
                             color = SurfaceContainerHigh
                         ) {
                             Text(
-                                text = "Termos Ativos",
+                                text = "${settings.glossaryTerms.size} regras",
                                 color = OnSurfaceVariantText,
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -784,59 +817,203 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Category 1: Non-translatable Lore / Terms
+                    // Glossário personalizado e termos não traduzíveis (termo -> termo)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.SwapHoriz,
+                                contentDescription = null,
+                                tint = SecondaryBlue,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Mapeamentos e Termos Não Traduzíveis",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceText
+                            )
+                        }
+                        Text(
+                            text = "Use \"original -> tradução\" (ou \"termo -> termo\" para manter o nome original sem traduzir), um por linha.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceVariantText
+                        )
+
+                        if (settings.glossaryTerms.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                settings.glossaryTerms.entries.take(8).forEach { (src, tgt) ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = SurfaceContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Text(
+                                                    text = src,
+                                                    color = SecondaryFixed,
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Icon(
+                                                    imageVector = if (src.equals(tgt, ignoreCase = true)) Icons.Default.Lock else Icons.AutoMirrored.Filled.ArrowForward,
+                                                    contentDescription = null,
+                                                    tint = OnSurfaceVariantText,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = if (tgt.isBlank() || src.equals(tgt, ignoreCase = true)) "Manter original" else tgt,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = OnSurfaceText,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    val updated = glossaryText.lines()
+                                                        .filter { line ->
+                                                            val parsed = SettingsRepositoryForUi.extractSourceKey(line)
+                                                            !parsed.equals(src, ignoreCase = true)
+                                                        }
+                                                        .joinToString("\n")
+                                                    glossaryText = updated
+                                                    onGlossaryChanged(updated)
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Remover regra",
+                                                    tint = OnSurfaceVariantText,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = glossaryText,
+                            onValueChange = { glossaryText = it },
+                            placeholder = { Text("Ex:\nNight City -> Night City\nChoom -> Parceiro") },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = OnSurfaceText,
+                                unfocusedTextColor = OnSurfaceText,
+                                focusedBorderColor = PrimaryViolet,
+                                unfocusedBorderColor = OutlineVariantBorder
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(104.dp)
+                                .testTag("glossary_text_field")
+                        )
+                    }
+
+                    // Filtro de Marcas d'Água / Termos Removidos das Legendas
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
+                                    imageVector = Icons.Default.FilterAlt,
                                     contentDescription = null,
                                     tint = PrimaryFixedDim,
-                                    modifier = Modifier.size(15.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Termos Não Traduzíveis (Manter Original)",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OnSurfaceText
-                                )
+                                Column {
+                                    Text(
+                                        text = "Filtro de Marcas d'Água (Remover)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnSurfaceText
+                                    )
+                                    Text(
+                                        text = "Remove @perfis, URLs e termos abaixo antes de traduzir",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariantText
+                                    )
+                                }
                             }
+                            Switch(
+                                checked = settings.filterWatermarks,
+                                onCheckedChange = onFilterWatermarksChanged,
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = OnPrimaryFixed,
+                                    checkedTrackColor = PrimaryFixedDim,
+                                    uncheckedThumbColor = OnSurfaceVariantText,
+                                    uncheckedTrackColor = SurfaceContainerHighest
+                                )
+                            )
                         }
 
-                        // Sample pills from design
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf("Night City", "Sandevistan", "Netrunner").forEach { term ->
-                                Surface(
-                                    shape = CircleShape,
-                                    color = SurfaceContainer,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f))
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        if (settings.ignoredTerms.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                settings.ignoredTerms.forEach { term ->
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = SurfaceContainer,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, OutlineVariantBorder.copy(alpha = 0.5f)),
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                val updated = settings.ignoredTerms
+                                                    .filterNot { it.equals(term, ignoreCase = true) }
+                                                    .joinToString(", ")
+                                                ignoredTermsText = updated
+                                                onIgnoredTermsChanged(updated)
+                                            }
                                     ) {
-                                        Text(
-                                            text = term,
-                                            color = OnSurfaceText,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = null,
-                                            tint = OnSurfaceVariantText,
-                                            modifier = Modifier.size(13.dp)
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = term,
+                                                color = OnSurfaceText,
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remover termo ignorado",
+                                                tint = OnSurfaceVariantText,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -845,7 +1022,7 @@ fun SettingsScreen(
                         OutlinedTextField(
                             value = ignoredTermsText,
                             onValueChange = { ignoredTermsText = it },
-                            placeholder = { Text("Ex: Night City, Sandevistan, Netrunner, meucanal") },
+                            placeholder = { Text("Ex: @canal, meucanal, fansub (separados por vírgula)") },
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = OnSurfaceText,
@@ -859,92 +1036,11 @@ fun SettingsScreen(
                                 .testTag("ignored_terms_input")
                         )
                     }
-
-                    // Category 2: Term Mappings (Custom Substitutions)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.SwapHoriz,
-                                contentDescription = null,
-                                tint = SecondaryBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Substituições Personalizadas (Mapeamentos)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = OnSurfaceText
-                            )
-                        }
-
-                        // Mapping examples from design
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = SurfaceContainer,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Choom",
-                                        color = SecondaryFixed,
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        tint = OnSurfaceVariantText,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Parceiro / Chapa",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = OnSurfaceText
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = null,
-                                    tint = OnSurfaceVariantText,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-
-                        OutlinedTextField(
-                            value = glossaryText,
-                            onValueChange = { glossaryText = it },
-                            placeholder = { Text("Formato: termoOriginal -> termoTraduzido (um por linha)") },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = OnSurfaceText,
-                                unfocusedTextColor = OnSurfaceText,
-                                focusedBorderColor = PrimaryViolet,
-                                unfocusedBorderColor = OutlineVariantBorder
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp)
-                                .testTag("glossary_text_field")
-                        )
-                    }
                 }
             }
 
             // ==========================================
-            // 4. Background Execution & Permissions Card
+            // 4. Background Execution & Permissions Card (Real Device Status)
             // ==========================================
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -980,14 +1076,14 @@ fun SettingsScreen(
                                 color = OnSurfaceText
                             )
                             Text(
-                                text = "Processamento ininterrupto de vídeos longos",
+                                text = "Status real das permissões no dispositivo",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OnSurfaceVariantText
                             )
                         }
                     }
 
-                    // Battery
+                    // Battery status
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SurfaceContainer,
@@ -1000,11 +1096,14 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.BatterySaver,
                                     contentDescription = null,
-                                    tint = PrimaryFixedDim,
+                                    tint = if (isBatteryUnrestricted) SuccessEmerald else WarningAmber,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -1016,22 +1115,26 @@ fun SettingsScreen(
                                         color = OnSurfaceText
                                     )
                                     Text(
-                                        text = "Sem restrições (Lista de permissões ativa)",
+                                        text = if (isBatteryUnrestricted) {
+                                            "Sem restrições de bateria para o app"
+                                        } else {
+                                            "Restrição padrão do sistema ativa (pode limitar processos longos)"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OnSurfaceVariantText
                                     )
                                 }
                             }
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector = if (isBatteryUnrestricted) Icons.Default.CheckCircle else Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = PrimaryFixedDim,
+                                tint = if (isBatteryUnrestricted) SuccessEmerald else WarningAmber,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    // Foreground
+                    // Notification / Foreground status
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SurfaceContainer,
@@ -1044,32 +1147,39 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.NotificationsActive,
                                     contentDescription = null,
-                                    tint = SecondaryBlue,
+                                    tint = if (hasNotificationsPermission) SecondaryBlue else WarningAmber,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = "Serviço em Primeiro Plano",
+                                        text = "Notificação de Progresso",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold,
                                         color = OnSurfaceText
                                     )
                                     Text(
-                                        text = "Notificação persistente de progresso",
+                                        text = if (hasNotificationsPermission) {
+                                            "Permissão concedida para o serviço em primeiro plano"
+                                        } else {
+                                            "Permissão de notificações não concedida"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OnSurfaceVariantText
                                     )
                                 }
                             }
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector = if (hasNotificationsPermission) Icons.Default.CheckCircle else Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = SecondaryBlue,
+                                tint = if (hasNotificationsPermission) SecondaryBlue else WarningAmber,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -1177,5 +1287,17 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
+
+private object SettingsRepositoryForUi {
+    fun extractSourceKey(rawLine: String): String {
+        val trimmed = rawLine.trim()
+        val sepIndex = when {
+            trimmed.contains("->") -> trimmed.indexOf("->")
+            trimmed.contains("=") -> trimmed.indexOf("=")
+            else -> -1
+        }
+        return if (sepIndex >= 0) trimmed.substring(0, sepIndex).trim() else ""
     }
 }

@@ -114,6 +114,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.R
 import com.example.domain.model.AppSettings
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
 import com.example.ui.components.SubTranslateTopBar
@@ -164,7 +165,9 @@ fun ReviewEditorScreen(
     onClearUserMessage: () -> Unit,
     onExportClick: () -> Unit,
     onBackClick: () -> Unit,
-    onRequestTranslateOnline: (suspend (String) -> Result<String>)? = null
+    onRequestTranslateOnline: (suspend (String) -> Result<String>)? = null,
+    onSaveLineEdits: ((Long, String, String, Long, Long, Boolean) -> Unit)? = null,
+    modelTag: String = "Gemini 2.5 Flash"
 ) {
     val context = LocalContext.current
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
@@ -280,6 +283,7 @@ fun ReviewEditorScreen(
             SubTranslateTopBar(
                 subtitle = "Editor de Legendas",
                 onBackClick = onBackClick,
+                modelTag = modelTag,
                 actions = {
                     IconButton(
                         onClick = onExportClick,
@@ -375,7 +379,7 @@ fun ReviewEditorScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "PRÉVIA 1080p",
+                                        text = if ((project?.videoHeight ?: 0) > 0) "PRÉVIA ${project!!.videoHeight}p" else "PRÉVIA",
                                         color = OnSurfaceText,
                                         fontSize = 10.sp,
                                         fontFamily = FontFamily.Monospace,
@@ -701,15 +705,15 @@ fun ReviewEditorScreen(
                     onClick = { selectedFilter = "reviewed" }
                 )
                 M3FilterPill(
-                    label = "Com Gírias / Gemini",
+                    label = "Traduzidas",
                     isSelected = selectedFilter == "slang",
                     icon = Icons.Default.AutoAwesome,
                     onClick = { selectedFilter = "slang" }
                 )
                 M3FilterPill(
-                    label = "Fallback ML Kit",
+                    label = "Para Revisão",
                     isSelected = selectedFilter == "fallback",
-                    icon = Icons.Default.OfflineBolt,
+                    icon = Icons.Default.Warning,
                     onClick = { selectedFilter = "fallback" }
                 )
             }
@@ -799,7 +803,10 @@ fun ReviewEditorScreen(
                         onDelete = { onDeleteLine(line.id) },
                         onMerge = { onMergeWithNext(line.id) },
                         onSplit = { splittingLine = line },
-                        onRetranslate = { onRetranslateLine(line.id) }
+                        onRetranslate = { onRetranslateLine(line.id) },
+                        sourceLang = project?.sourceLanguage ?: "en",
+                        targetLang = project?.targetLanguage ?: "pt",
+                        isAudioSource = project?.captureSource == CaptureSource.AUDIO_TRANSCRIPTION
                     )
                 }
                 item {
@@ -811,14 +818,21 @@ fun ReviewEditorScreen(
 
     // Edit Subtitle Dialog
     if (editingLine != null) {
+        val currentEditing = editingLine!!
         EditSubtitleDialog(
-            line = editingLine!!,
+            line = currentEditing,
             videoDurationMs = project?.durationMs ?: Long.MAX_VALUE,
+            sourceLang = project?.sourceLanguage ?: "en",
+            targetLang = project?.targetLanguage ?: "pt",
             onRequestTranslateOnline = onRequestTranslateOnline,
             onDismiss = { editingLine = null },
             onSave = { updatedOrig, updatedTrans, startMs, endMs, saveToMemory ->
-                onUpdateLineText(editingLine!!.id, updatedOrig, updatedTrans, saveToMemory)
-                onUpdateLineTimestamps(editingLine!!.id, startMs, endMs)
+                if (onSaveLineEdits != null) {
+                    onSaveLineEdits(currentEditing.id, updatedOrig, updatedTrans, startMs, endMs, saveToMemory)
+                } else {
+                    onUpdateLineText(currentEditing.id, updatedOrig, updatedTrans, saveToMemory)
+                    onUpdateLineTimestamps(currentEditing.id, startMs, endMs)
+                }
                 editingLine = null
             }
         )
@@ -933,7 +947,10 @@ fun M3SubtitleLineCard(
     onDelete: () -> Unit,
     onMerge: () -> Unit,
     onSplit: () -> Unit,
-    onRetranslate: () -> Unit
+    onRetranslate: () -> Unit,
+    sourceLang: String = "en",
+    targetLang: String = "pt",
+    isAudioSource: Boolean = false
 ) {
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -1008,25 +1025,25 @@ fun M3SubtitleLineCard(
                         }
                     }
 
-                    // Engine Badge
+                    // Status Badge real da linha
                     Surface(
                         shape = CircleShape,
-                        color = PrimaryContainerViolet.copy(alpha = 0.25f)
+                        color = if (line.isFlagged) WarningAmber.copy(alpha = 0.18f) else SuccessEmerald.copy(alpha = 0.16f)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AutoAwesome,
+                                imageVector = if (line.isFlagged) Icons.Default.Warning else Icons.Default.Verified,
                                 contentDescription = null,
-                                tint = PrimaryFixedDim,
+                                tint = if (line.isFlagged) WarningAmber else SuccessEmerald,
                                 modifier = Modifier.size(11.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Gemini IA",
-                                color = PrimaryFixedDim,
+                                text = if (line.isFlagged) "Revisar" else "OK",
+                                color = if (line.isFlagged) WarningAmber else SuccessEmerald,
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.SemiBold
@@ -1037,7 +1054,7 @@ fun M3SubtitleLineCard(
 
                 // Dual Language Stack
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Original OCR Block
+                    // Original Block
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = SurfaceContainerLow,
@@ -1052,14 +1069,14 @@ fun M3SubtitleLineCard(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "ORIGINAL EM INGLÊS (OCR)",
+                                    text = "ORIGINAL (${sourceLang.uppercase()}) • ${if (isAudioSource) "ÁUDIO" else "OCR"}",
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = OnSurfaceVariantText,
                                     letterSpacing = 0.05.sp
                                 )
                                 Text(
-                                    text = "Precisão 99.4%",
+                                    text = "Confiança ${(line.confidence.coerceIn(0f, 1f) * 100).toInt()}%",
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = SecondaryFixedDim
@@ -1074,7 +1091,7 @@ fun M3SubtitleLineCard(
                         }
                     }
 
-                    // Translated Block (PT-BR)
+                    // Translated Block
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = if (isActive) SurfaceContainerHighest else SurfaceContainerHigh,
@@ -1089,24 +1106,26 @@ fun M3SubtitleLineCard(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "TRADUÇÃO EM PORTUGUÊS (PT-BR)",
+                                    text = "TRADUÇÃO (${targetLang.uppercase()})",
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     color = PrimaryFixedDim,
                                     letterSpacing = 0.05.sp
                                 )
-                                Surface(
-                                    shape = CircleShape,
-                                    color = PrimaryViolet.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = "Linguagem Informal",
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = PrimaryFixed,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                    )
+                                if (line.translatedText.isBlank()) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = WarningAmber.copy(alpha = 0.18f)
+                                    ) {
+                                        Text(
+                                            text = "Sem tradução",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = WarningAmber,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        )
+                                    }
                                 }
                             }
                             Text(
@@ -1161,7 +1180,9 @@ fun EditSubtitleDialog(
     videoDurationMs: Long,
     onRequestTranslateOnline: (suspend (String) -> Result<String>)? = null,
     onDismiss: () -> Unit,
-    onSave: (String, String, Long, Long, Boolean) -> Unit
+    onSave: (String, String, Long, Long, Boolean) -> Unit,
+    sourceLang: String = "en",
+    targetLang: String = "pt"
 ) {
     var original by remember(line.id) { mutableStateOf(line.originalText) }
     var translated by remember(line.id) { mutableStateOf(line.translatedText) }
@@ -1190,7 +1211,7 @@ fun EditSubtitleDialog(
                         original = it
                         onlineError = null
                     },
-                    label = { Text("Texto Original (Inglês)") },
+                    label = { Text("Texto Original (${sourceLang.uppercase()})") },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OnSurfaceText,
@@ -1204,7 +1225,7 @@ fun EditSubtitleDialog(
                 OutlinedTextField(
                     value = translated,
                     onValueChange = { translated = it },
-                    label = { Text("Tradução (Português)") },
+                    label = { Text("Tradução (${targetLang.uppercase()})") },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = OnSurfaceText,
@@ -1253,9 +1274,10 @@ fun EditSubtitleDialog(
                         onClick = {
                             scope.launch {
                                 isTranslatingOnline = true
+                                onlineError = null
                                 val res = onRequestTranslateOnline(original)
                                 res.onSuccess { translated = it }
-                                res.onFailure { onlineError = it.message }
+                                res.onFailure { onlineError = it.message ?: "Erro ao re-traduzir a fala." }
                                 isTranslatingOnline = false
                             }
                         },
@@ -1268,7 +1290,22 @@ fun EditSubtitleDialog(
                             Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = PrimaryFixedDim, modifier = Modifier.size(16.dp))
                         }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Re-traduzir com Gemini IA", color = PrimaryFixedDim)
+                        Text("Re-traduzir com IA", color = PrimaryFixedDim)
+                    }
+                }
+
+                onlineError?.let { errorMsg ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMsg,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(10.dp)
+                        )
                     }
                 }
 

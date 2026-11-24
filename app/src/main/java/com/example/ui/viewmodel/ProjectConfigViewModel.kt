@@ -76,7 +76,6 @@ class ProjectConfigViewModel(
         videoLoadGeneration++
         videoLoadJob?.cancel()
         roiDetectionJob?.cancel()
-        _uiState.value.previewFrame?.takeUnless { it.isRecycled }?.recycle()
         _uiState.value = ProjectConfigUiState()
     }
 
@@ -84,7 +83,6 @@ class ProjectConfigViewModel(
         val requestGeneration = ++videoLoadGeneration
         videoLoadJob?.cancel()
         roiDetectionJob?.cancel()
-        _uiState.value.previewFrame?.takeUnless { it.isRecycled }?.recycle()
         _uiState.value = _uiState.value.copy(
             videoUri = null,
             videoName = "",
@@ -446,7 +444,6 @@ class ProjectConfigViewModel(
     override fun onCleared() {
         videoLoadJob?.cancel()
         roiDetectionJob?.cancel()
-        _uiState.value.previewFrame?.takeUnless { it.isRecycled }?.recycle()
         super.onCleared()
     }
 }

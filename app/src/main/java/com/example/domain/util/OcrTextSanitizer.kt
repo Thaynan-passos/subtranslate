@@ -51,6 +51,19 @@ object OcrTextSanitizer {
         "(?i)\\b(mayra|mayre|mayba|mayoe)\\s+(?=(?:you(?:'d|'re|'ve)?|we(?:'ll|'re|'ve)?|i(?:'m|'d|'ll)?|he(?:'s|'d)?|she(?:'s|'d)?|they(?:'re|'ve)?|it(?:'s)?|there(?:'s)?|a|the|this|that|so|if|not)\\b)"
     )
 
+    private val CURLY_APOSTROPHE_REGEX = Regex("[’‘`´]")
+    private val CURLY_QUOTE_REGEX = Regex("[“”«»]")
+    private val TRAILING_APOSTROPHE_REGEX = Regex("(?i)\\b([a-z]+'[a-z]+)'+")
+    private val LEADING_APOSTROPHE_REGEX = Regex("(?i)'+([a-z]+'[a-z]+)\\b")
+    private val L_CONTRACTION_REGEX = Regex("(?i)\\bl'(m|d|ll|ve)\\b")
+    private val IM_REGEX = Regex("\\bIm\\b")
+    private val ILL_REGEX = Regex("\\bIll\\b")
+
+    private val COMPILED_ENGLISH_CONTRACTIONS: List<Pair<Regex, String>> =
+        ENGLISH_CONTRACTION_MAP.entries.map { (raw, fixed) ->
+            Regex("(?i)\\b$raw\\b") to fixed
+        }
+
     /**
      * Sanitiza o texto extraído por OCR, normalizando pontuações e corrigindo distorções
      * conhecidas antes de enviar para o agrupador temporal ou para a tradução.
@@ -60,19 +73,19 @@ object OcrTextSanitizer {
 
         var processed = text
             // 1. Normaliza apóstrofos e aspas curvas tipográficas para padrão ASCII
-            .replace("[’‘`´]".toRegex(), "'")
-            .replace("[“”«»]".toRegex(), "\"")
+            .replace(CURLY_APOSTROPHE_REGEX, "'")
+            .replace(CURLY_QUOTE_REGEX, "\"")
 
         // 2. Remove apóstrofos/aspas espúrias coladas no final ou início de contrações
         // ex: "you'd'" -> "you'd", "don't''" -> "don't", "'you'd" -> "you'd"
-        processed = processed.replace("(?i)\\b([a-z]+'[a-z]+)'+".toRegex(), "$1")
-        processed = processed.replace("(?i)'+([a-z]+'[a-z]+)\\b".toRegex(), "$1")
+        processed = processed.replace(TRAILING_APOSTROPHE_REGEX, "$1")
+        processed = processed.replace(LEADING_APOSTROPHE_REGEX, "$1")
 
         // 3. Corrige confusão clássica de 'l' minúsculo por 'I' maiúsculo em contrações inglesas
         processed = processed
-            .replace("(?i)\\bl'(m|d|ll|ve)\\b".toRegex(), "I'$1")
-            .replace("\\bIm\\b".toRegex(), "I'm")
-            .replace("\\bIll\\b".toRegex(), "I'll")
+            .replace(L_CONTRACTION_REGEX, "I'$1")
+            .replace(IM_REGEX, "I'm")
+            .replace(ILL_REGEX, "I'll")
 
         // 4. Correções específicas para inglês (ou quando idioma de origem não for CJK)
         val isEnglish = sourceLanguage.equals("en", ignoreCase = true) ||
@@ -83,13 +96,11 @@ object OcrTextSanitizer {
             // Correção de 'maybe' corrompido ("mayra you'd", "mayre you'd", etc.)
             processed = MAYBE_OCR_CONFUSION_REGEX.replace(processed) { matchResult ->
                 val originalWord = matchResult.groupValues[1]
-                val replacement = if (originalWord.first().isUpperCase()) "Maybe " else "maybe "
-                replacement
+                if (originalWord.first().isUpperCase()) "Maybe " else "maybe "
             }
 
             // Restauração de contrações sem apóstrofo ("youd" -> "you'd", "dont" -> "don't")
-            for ((raw, fixed) in ENGLISH_CONTRACTION_MAP) {
-                val pattern = "(?i)\\b$raw\\b".toRegex()
+            for ((pattern, fixed) in COMPILED_ENGLISH_CONTRACTIONS) {
                 if (pattern.containsMatchIn(processed)) {
                     processed = pattern.replace(processed) { match ->
                         val matchedText = match.value

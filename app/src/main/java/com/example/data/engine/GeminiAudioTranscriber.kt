@@ -47,7 +47,7 @@ class GeminiAudioTranscriber(
                 "Chave da API do Google Gemini não informada nas Configurações. Ela é necessária para transcrever o áudio."
             )
         }
-        val model = modelProvider().trim().ifBlank { DEFAULT_MODEL }
+        val model = GeminiTranslatorImpl.validateModelName(modelProvider().ifBlank { DEFAULT_MODEL })
         val workDir = context.cacheDir.resolve("audio_transcription_${System.nanoTime()}")
 
         try {
@@ -106,7 +106,8 @@ class GeminiAudioTranscriber(
         val base64Length = ((audioBytes + 2) / 3) * 4
         val contentLength = prefixBytes.size + base64Length + suffixBytes.size
 
-        val conn = URL("$API_BASE_URL/$model:generateContent").openConnection() as HttpURLConnection
+        val safeModel = GeminiTranslatorImpl.validateModelName(model)
+        val conn = URL("$API_BASE_URL/$safeModel:generateContent").openConnection() as HttpURLConnection
         return try {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")

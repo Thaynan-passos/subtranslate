@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.data.security.AndroidKeyStoreApiKeyCipher
+import com.example.data.security.ApiKeyCipher
 import com.example.domain.model.AppSettings
 import com.example.domain.util.WatermarkFilter
 import kotlinx.coroutines.flow.Flow
@@ -16,7 +18,10 @@ import kotlinx.coroutines.flow.map
 
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "subtranslate_settings")
 
-class SettingsRepository(private val context: Context) {
+class SettingsRepository(
+    private val context: Context,
+    private val apiKeyCipher: ApiKeyCipher = AndroidKeyStoreApiKeyCipher()
+) {
 
     private object Keys {
         val DEFAULT_FPS = intPreferencesKey("default_fps")
@@ -33,6 +38,10 @@ class SettingsRepository(private val context: Context) {
         val TRANSLATION_ENGINE = stringPreferencesKey("translation_engine")
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val GEMINI_MODEL = stringPreferencesKey("gemini_model")
+        val AUTO_FALLBACK_TO_MLKIT = booleanPreferencesKey("auto_fallback_to_mlkit")
+        val ENABLE_HIGH_CONTRAST_OCR = booleanPreferencesKey("enable_high_contrast_ocr")
+        val ENABLE_OTSU_OCR = booleanPreferencesKey("enable_otsu_ocr")
+        val ENABLE_FULL_FRAME_FALLBACK_OCR = booleanPreferencesKey("enable_full_frame_fallback_ocr")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -44,7 +53,7 @@ class SettingsRepository(private val context: Context) {
         AppSettings(
             defaultFps = prefs[Keys.DEFAULT_FPS] ?: 2,
             minSpeechDurationMs = (prefs[Keys.MIN_SPEECH_DURATION] ?: 300).toLong(),
-            textSimilarityThreshold = prefs[Keys.SIMILARITY_THRESHOLD] ?: 0.85f,
+            textSimilarityThreshold = prefs[Keys.SIMILARITY_THRESHOLD] ?: AppSettings.DEFAULT_SIMILARITY_THRESHOLD,
             maxCharsPerLine = prefs[Keys.MAX_CHARS_PER_LINE] ?: 42,
             coverOriginalOverlay = prefs[Keys.COVER_ORIGINAL_OVERLAY] ?: true,
             overlayColorHex = prefs[Keys.OVERLAY_COLOR_HEX] ?: "#E6000000",
@@ -56,8 +65,12 @@ class SettingsRepository(private val context: Context) {
             ignoredTermsRaw = ignoredTermsString,
             ignoredTerms = parsedIgnoredTerms,
             translationEngine = prefs[Keys.TRANSLATION_ENGINE] ?: "gemini",
-            geminiApiKey = prefs[Keys.GEMINI_API_KEY] ?: "",
-            geminiModel = prefs[Keys.GEMINI_MODEL] ?: "gemini-2.5-flash"
+            geminiApiKey = apiKeyCipher.decryptIfEncrypted(prefs[Keys.GEMINI_API_KEY] ?: ""),
+            geminiModel = prefs[Keys.GEMINI_MODEL] ?: AppSettings.DEFAULT_GEMINI_MODEL,
+            autoFallbackToMlKit = prefs[Keys.AUTO_FALLBACK_TO_MLKIT] ?: true,
+            enableHighContrastOcr = prefs[Keys.ENABLE_HIGH_CONTRAST_OCR] ?: true,
+            enableOtsuOcr = prefs[Keys.ENABLE_OTSU_OCR] ?: true,
+            enableFullFrameFallbackOcr = prefs[Keys.ENABLE_FULL_FRAME_FALLBACK_OCR] ?: true
         )
     }
 
@@ -102,11 +115,29 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun updateGeminiApiKey(apiKey: String) {
-        context.settingsDataStore.edit { it[Keys.GEMINI_API_KEY] = apiKey.trim() }
+        val cleanKey = apiKey.trim()
+        val stored = if (cleanKey.isBlank()) "" else apiKeyCipher.encrypt(cleanKey)
+        context.settingsDataStore.edit { it[Keys.GEMINI_API_KEY] = stored }
     }
 
     suspend fun updateGeminiModel(model: String) {
         context.settingsDataStore.edit { it[Keys.GEMINI_MODEL] = model.trim() }
+    }
+
+    suspend fun updateAutoFallbackToMlKit(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.AUTO_FALLBACK_TO_MLKIT] = enabled }
+    }
+
+    suspend fun updateEnableHighContrastOcr(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ENABLE_HIGH_CONTRAST_OCR] = enabled }
+    }
+
+    suspend fun updateEnableOtsuOcr(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ENABLE_OTSU_OCR] = enabled }
+    }
+
+    suspend fun updateEnableFullFrameFallbackOcr(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ENABLE_FULL_FRAME_FALLBACK_OCR] = enabled }
     }
 
     companion object {

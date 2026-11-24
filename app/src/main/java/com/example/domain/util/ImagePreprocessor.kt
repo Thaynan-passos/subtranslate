@@ -112,6 +112,37 @@ object ImagePreprocessor {
         }
     }
 
+    data class ThumbnailMetrics(
+        val gray: IntArray,
+        val rgb: IntArray
+    )
+
+    /**
+     * Extrai thumbnail em escala de cinza e RGB em uma única operação de redimensionamento.
+     */
+    fun createThumbnailMetrics(src: Bitmap, width: Int = 64, height: Int = 16): ThumbnailMetrics {
+        val scaled = Bitmap.createScaledBitmap(src, width, height, true)
+        val pixels = IntArray(width * height)
+        scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+        if (scaled != src) {
+            scaled.recycle()
+        }
+
+        val grays = IntArray(pixels.size)
+        val channels = IntArray(pixels.size * 3)
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            grays[i] = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+            channels[i * 3] = r
+            channels[i * 3 + 1] = g
+            channels[i * 3 + 2] = b
+        }
+        return ThumbnailMetrics(gray = grays, rgb = channels)
+    }
+
     /**
      * Extracts a downsampled grayscale thumbnail (64x16 by default) for high-sensitivity frame diffing.
      */

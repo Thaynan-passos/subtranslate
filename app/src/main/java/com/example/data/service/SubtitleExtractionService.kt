@@ -28,6 +28,8 @@ class SubtitleExtractionService : Service() {
     private var lastStartId = 0
     private var runningProjectId: Long? = null
     private var processingWakeLock: PowerManager.WakeLock? = null
+    @Volatile
+    private var timedOutBySystem = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -102,6 +104,7 @@ class SubtitleExtractionService : Service() {
         }
 
         acquireProcessingWakeLock()
+        timedOutBySystem = false
         runningProjectId = projectId
         activeProjectId = projectId
 
@@ -116,7 +119,14 @@ class SubtitleExtractionService : Service() {
             } catch (e: CancellationException) {
                 withContext(NonCancellable) {
                     val proj = container.projectRepository.getProjectById(projectId)
-                    if (proj != null && proj.status == com.example.domain.model.ProjectStatus.PROCESSING) {
+                    if (timedOutBySystem) {
+                        container.projectRepository.updateProgress(
+                            projectId,
+                            com.example.domain.model.ProjectStatus.ERROR.name,
+                            0f,
+                            "Tempo limite do serviço em segundo plano atingido pelo Android. Tente novamente."
+                        )
+                    } else if (proj != null && proj.status == com.example.domain.model.ProjectStatus.PROCESSING) {
                         container.projectRepository.updateProgress(
                             projectId,
                             com.example.domain.model.ProjectStatus.PAUSED.name,
@@ -158,6 +168,7 @@ class SubtitleExtractionService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        timedOutBySystem = true
         val projId = runningProjectId
         if (projId != null) {
             (application as? SubTranslateApp)?.container?.extractionPipeline?.markCancelled(projId)
@@ -251,7 +262,11 @@ class SubtitleExtractionService : Service() {
                 this.action = action
                 putExtra(EXTRA_PROJECT_ID, projectId)
             }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (_: IllegalStateException) {
+                // Ignora se o sistema não permitir iniciar o serviço em segundo plano neste estado
+            }
         }
     }
 }

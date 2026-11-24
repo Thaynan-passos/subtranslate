@@ -248,21 +248,25 @@ class TemporalSpeechGrouper(
         if (tokens1.isEmpty() || tokens2.isEmpty()) return 0f
         val m = tokens1.size
         val n = tokens2.size
-        val dp = Array(m + 1) { IntArray(n + 1) }
+        var prev = IntArray(n + 1)
+        var curr = IntArray(n + 1)
 
         for (i in 1..m) {
+            val t1 = tokens1[i - 1]
             for (j in 1..n) {
-                val t1 = tokens1[i - 1]
                 val t2 = tokens2[j - 1]
                 val matches = (t1 == t2) || (t1.length >= 3 && t2.length >= 3 && Levenshtein.isSimilar(t1, t2))
-                dp[i][j] = if (matches) {
-                    dp[i - 1][j - 1] + 1
+                curr[j] = if (matches) {
+                    prev[j - 1] + 1
                 } else {
-                    maxOf(dp[i - 1][j], dp[i][j - 1])
+                    maxOf(prev[j], curr[j - 1])
                 }
             }
+            val swap = prev
+            prev = curr
+            curr = swap
         }
-        val lcs = dp[m][n]
+        val lcs = prev[n]
         val minSize = minOf(m, n)
         return lcs.toFloat() / minSize.toFloat()
     }

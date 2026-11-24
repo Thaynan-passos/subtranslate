@@ -144,7 +144,14 @@ fun ProjectConfigScreen(
     onOutputModeChanged: (OutputMode) -> Unit,
     onCaptureSourceChanged: (CaptureSource) -> Unit = {},
     onStartExtraction: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    enableHighContrastOcr: Boolean = true,
+    onEnableHighContrastOcrChanged: (Boolean) -> Unit = {},
+    enableOtsuOcr: Boolean = true,
+    onEnableOtsuOcrChanged: (Boolean) -> Unit = {},
+    enableFullFrameFallbackOcr: Boolean = true,
+    onEnableFullFrameFallbackOcrChanged: (Boolean) -> Unit = {},
+    activeEngineLabel: String = "Gemini 2.5 Flash"
 ) {
     val context = LocalContext.current
 
@@ -184,7 +191,8 @@ fun ProjectConfigScreen(
                 } else {
                     "Importar Vídeo e Ajustar OCR"
                 },
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                modelTag = activeEngineLabel
             )
         }
     ) { paddingValues ->
@@ -234,12 +242,19 @@ fun ProjectConfigScreen(
                         Spacer(modifier = Modifier.width(12.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
+                            val fileExt = remember(uiState.videoUri, uiState.videoName) {
+                                uiState.videoName.substringAfterLast('.', "")
+                                    .trim()
+                                    .uppercase()
+                                    .takeIf { it.isNotEmpty() && it.length <= 5 }
+                                    ?: "VÍDEO"
+                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = if (uiState.videoUri != null) uiState.videoName else "SciFi_Series_Ep04.mp4",
+                                    text = if (uiState.videoUri != null) uiState.videoName else "Nenhum vídeo selecionado",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = if (uiState.videoUri != null) OnSurfaceText else OnSurfaceVariantText,
@@ -248,18 +263,20 @@ fun ProjectConfigScreen(
                                     modifier = Modifier.weight(1f, fill = false)
                                 )
 
-                                Surface(
-                                    shape = CircleShape,
-                                    color = SurfaceContainerHigh
-                                ) {
-                                    Text(
-                                        text = "MP4",
-                                        color = PrimaryFixedDim,
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
+                                if (uiState.videoUri != null) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = SurfaceContainerHigh
+                                    ) {
+                                        Text(
+                                            text = fileExt,
+                                            color = PrimaryFixedDim,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -270,14 +287,14 @@ fun ProjectConfigScreen(
                                 val min = durationSec / 60
                                 val sec = durationSec % 60
                                 Text(
-                                    text = "${String.format("%02d:%02d", min, sec)} • ${uiState.videoWidth}x${uiState.videoHeight} • 60 FPS",
+                                    text = "${String.format("%02d:%02d", min, sec)} • ${uiState.videoWidth}x${uiState.videoHeight}",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontFamily = FontFamily.Monospace,
                                     color = OnSurfaceVariantText
                                 )
                             } else {
                                 Text(
-                                    text = "Toque em 'Escolher Vídeo' para começar",
+                                    text = "Toque em 'Escolher' para selecionar um vídeo",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariantText
                                 )
@@ -812,10 +829,6 @@ fun ProjectConfigScreen(
             // ==========================================
             // 4. Pre-Processing Switches (M3 Style)
             // ==========================================
-            var highContrastEnabled by remember { mutableStateOf(true) }
-            var binarizationEnabled by remember { mutableStateOf(false) }
-            var fullFrameFallbackEnabled by remember { mutableStateOf(true) }
-
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -839,8 +852,8 @@ fun ProjectConfigScreen(
                         iconTint = PrimaryFixedDim,
                         title = "Filtro de Alto Contraste",
                         description = "Melhora a leitura sobre fundos complexos ou brilhantes",
-                        checked = highContrastEnabled,
-                        onCheckedChange = { highContrastEnabled = it }
+                        checked = enableHighContrastOcr,
+                        onCheckedChange = onEnableHighContrastOcrChanged
                     )
 
                     // Switch 2: Black & White
@@ -849,8 +862,8 @@ fun ProjectConfigScreen(
                         iconTint = SecondaryBlue,
                         title = "Binarização em Preto e Branco",
                         description = "Isola caracteres eliminando gradientes e cores do fundo",
-                        checked = binarizationEnabled,
-                        onCheckedChange = { binarizationEnabled = it }
+                        checked = enableOtsuOcr,
+                        onCheckedChange = onEnableOtsuOcrChanged
                     )
 
                     // Switch 3: Full Frame Fallback
@@ -859,8 +872,8 @@ fun ProjectConfigScreen(
                         iconTint = Color(0xFFBDC2FF),
                         title = "Varredura do Quadro Inteiro",
                         description = "Executa varredura completa se a área delimitada estiver vazia",
-                        checked = fullFrameFallbackEnabled,
-                        onCheckedChange = { fullFrameFallbackEnabled = it }
+                        checked = enableFullFrameFallbackOcr,
+                        onCheckedChange = onEnableFullFrameFallbackOcrChanged
                     )
                 }
             }
@@ -1014,7 +1027,11 @@ fun ProjectConfigScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Gemini 1.5 Flash pronto para sincronização de legendas",
+                        text = if (uiState.outputMode == OutputMode.EXTRACT_ONLY) {
+                            "Modo de extração de texto (tradução manual)"
+                        } else {
+                            "Motor ativo: $activeEngineLabel"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,

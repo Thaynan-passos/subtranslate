@@ -59,17 +59,21 @@ class AppContainer(val context: Context) {
 
     val ocrEngine: OcrEngine by ocrEngineInstance
 
-    private val translatorInstance = lazy {
-        val mlKit = MlKitTranslatorImpl(subtitleRepository)
-        val gemini = GeminiTranslatorImpl(
+    val geminiTranslator: GeminiTranslatorImpl by lazy {
+        GeminiTranslatorImpl(
             repository = subtitleRepository,
             apiKeyProvider = { _currentSettings.value.geminiApiKey },
             modelProvider = { _currentSettings.value.geminiModel }
         )
+    }
+
+    private val translatorInstance = lazy {
+        val mlKit = MlKitTranslatorImpl(subtitleRepository)
         SmartHybridTranslator(
             mlKitTranslator = mlKit,
-            geminiTranslator = gemini,
-            settingsProvider = { _currentSettings.value }
+            geminiTranslator = geminiTranslator,
+            settingsProvider = { _currentSettings.value },
+            backgroundScope = applicationScope
         )
     }
 

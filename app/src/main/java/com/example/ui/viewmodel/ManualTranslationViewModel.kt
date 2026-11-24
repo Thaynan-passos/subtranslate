@@ -8,6 +8,7 @@ import com.example.data.repository.SubtitleRepository
 import com.example.domain.model.Project
 import com.example.domain.model.SubtitleLine
 import com.example.domain.util.ManualTranslationFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -78,6 +79,8 @@ class ManualTranslationViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 "Erro ao importar tradução: ${e.localizedMessage ?: "formato inválido"}"
             }

@@ -64,7 +64,7 @@ fun SubTranslateTopBar(
     subtitle: String,
     onBackClick: (() -> Unit)? = null,
     onNotificationsClick: (() -> Unit)? = null,
-    modelTag: String = "Gemini 1.5 Flash",
+    modelTag: String = "Gemini 2.5 Flash",
     actions: @Composable () -> Unit = {}
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")

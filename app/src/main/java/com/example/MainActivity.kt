@@ -117,6 +117,12 @@ class MainActivity : ComponentActivity() {
                         initial = AppSettings()
                     )
 
+                    val activeModelTag = if (settings.translationEngine == "gemini" && settings.geminiApiKey.isNotBlank()) {
+                        settings.geminiModel
+                    } else {
+                        "ML Kit Offline"
+                    }
+
                     val scope = rememberCoroutineScope()
 
                     // Selected home tab: automatic translation or text extraction (manual translation)
@@ -202,7 +208,20 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
-                                onBackClick = { navigateBack() }
+                                onBackClick = { navigateBack() },
+                                enableHighContrastOcr = settings.enableHighContrastOcr,
+                                onEnableHighContrastOcrChanged = {
+                                    scope.launch { container.settingsRepository.updateEnableHighContrastOcr(it) }
+                                },
+                                enableOtsuOcr = settings.enableOtsuOcr,
+                                onEnableOtsuOcrChanged = {
+                                    scope.launch { container.settingsRepository.updateEnableOtsuOcr(it) }
+                                },
+                                enableFullFrameFallbackOcr = settings.enableFullFrameFallbackOcr,
+                                onEnableFullFrameFallbackOcrChanged = {
+                                    scope.launch { container.settingsRepository.updateEnableFullFrameFallbackOcr(it) }
+                                },
+                                activeEngineLabel = activeModelTag
                             )
                         }
 
@@ -260,7 +279,8 @@ class MainActivity : ComponentActivity() {
                                 onBackClick = {
                                     backStack.clear()
                                     backStack.add("projects")
-                                }
+                                },
+                                modelTag = activeModelTag
                             )
                         }
 
@@ -306,7 +326,11 @@ class MainActivity : ComponentActivity() {
                                     backStack.clear()
                                     backStack.add("projects")
                                 },
-                                onRequestTranslateOnline = { text -> editorViewModel.translateTextOnline(text) }
+                                onRequestTranslateOnline = { text -> editorViewModel.translateTextOnline(text) },
+                                onSaveLineEdits = { id, orig, trans, start, end, mem ->
+                                    editorViewModel.saveLineEdits(id, orig, trans, start, end, mem)
+                                },
+                                modelTag = activeModelTag
                             )
                         }
 
@@ -342,7 +366,8 @@ class MainActivity : ComponentActivity() {
                                 onBackClick = {
                                     backStack.clear()
                                     backStack.add("projects")
-                                }
+                                },
+                                modelTag = activeModelTag
                             )
                         }
 
@@ -403,7 +428,13 @@ class MainActivity : ComponentActivity() {
                                 onGeminiModelChanged = {
                                     scope.launch { container.settingsRepository.updateGeminiModel(it) }
                                 },
-                                onBackClick = { navigateBack() }
+                                onBackClick = { navigateBack() },
+                                onAutoFallbackChanged = {
+                                    scope.launch { container.settingsRepository.updateAutoFallbackToMlKit(it) }
+                                },
+                                onTestGeminiConnection = { apiKey, model ->
+                                    container.geminiTranslator.testConnection(apiKey, model)
+                                }
                             )
                         }
                     }

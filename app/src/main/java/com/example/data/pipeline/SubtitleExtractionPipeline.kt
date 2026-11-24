@@ -10,6 +10,7 @@ import com.example.data.repository.SubtitleRepository
 import com.example.data.service.SubtitleExtractionService
 import com.example.data.util.NotificationHelper
 import com.example.domain.engine.OcrEngine
+import com.example.domain.engine.OcrPreprocessingOptions
 import com.example.domain.engine.SpeechTranscriber
 import com.example.domain.engine.Translator
 import com.example.domain.model.AppSettings
@@ -205,6 +206,10 @@ class SubtitleExtractionPipeline(
                 NotificationHelper.updateProgressNotification(context, project.title, "Preparando extração...", 5)
 
                 val isAudioSource = project.captureSource == CaptureSource.AUDIO_TRANSCRIPTION
+                val ocrOptions = OcrPreprocessingOptions(
+                    enableHighContrast = appSettings.enableHighContrastOcr,
+                    enableOtsuBinarization = appSettings.enableOtsuOcr
+                )
                 val groupedLines: List<SubtitleLine> = if (isAudioSource) {
                     // Fonte de áudio: transcrição com timestamps substitui o OCR + agrupamento temporal.
                     transcribeAudioToLines(project)
@@ -231,15 +236,7 @@ class SubtitleExtractionPipeline(
                     }
 
                     while (currentTimeMs < durationMs) {
-                        if (cancelledProjects.contains(project.id)) {
-                            throw CancellationException("Operação cancelada pelo usuário")
-                        }
-                        while (pausedProjects.contains(project.id)) {
-                            kotlinx.coroutines.delay(200)
-                            if (cancelledProjects.contains(project.id)) {
-                                throw CancellationException("Operação cancelada pelo usuário")
-                            }
-                        }
+                        awaitIfPausedOrCancelled(project.id)
 
                         val frameMicros = currentTimeMs * 1000L
                         val rawFrame = getScaledFrame(retriever, frameMicros, videoWidth, videoHeight)
@@ -259,8 +256,9 @@ class SubtitleExtractionPipeline(
 
                                 val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
                                 croppedBitmap = crop
-                                val grayThumb = ImagePreprocessor.createThumbnailGrayscale(crop, 96, 24)
-                                val currentThumb = ImagePreprocessor.createThumbnailRgb(crop, 96, 24)
+                                val thumbMetrics = ImagePreprocessor.createThumbnailMetrics(crop, 96, 24)
+                                val grayThumb = thumbMetrics.gray
+                                val currentThumb = thumbMetrics.rgb
                                 val stdDev = ImagePreprocessor.computeStandardDeviation(grayThumb)
 
                                 var detectedText: String
@@ -282,25 +280,44 @@ class SubtitleExtractionPipeline(
                                         detectedText = lastOcrText
                                         detectedConfidence = lastConfidence
                                     } else {
-                                        val ocrRes = try {
-                                            ocrEngine.recognizeText(crop, project.sourceLanguage)
+                                        var ocrRes = try {
+                                            ocrEngine.recognizeText(crop, project.sourceLanguage, ocrOptions)
                                         } catch (e: CancellationException) {
                                             throw e
                                         } catch (_: Exception) {
                                             failedOcrFrames++
                                             null
                                         }
-                                        val ocrText = ocrRes?.fullText.orEmpty()
-                                        detectedText = if (appSettings.filterWatermarks) {
-                                            WatermarkFilter.cleanText(
-                                                text = ocrText,
-                                                filterEnabled = true,
-                                                customIgnoredTerms = appSettings.ignoredTerms
-                                            )
-                                        } else {
-                                            ocrText
+                                        var cleanedOcr = sanitizeDetectedOcrText(
+                                            ocrRes?.fullText.orEmpty(),
+                                            project.sourceLanguage,
+                                            appSettings
+                                        )
+
+                                        val cropIsSubregion = cropW < (frameW * FULL_FRAME_FALLBACK_RATIO).toInt() ||
+                                            cropH < (frameH * FULL_FRAME_FALLBACK_RATIO).toInt()
+                                        if (cleanedOcr.isBlank() && appSettings.enableFullFrameFallbackOcr && cropIsSubregion) {
+                                            val fullFrameRes = try {
+                                                ocrEngine.recognizeText(rawFrame, project.sourceLanguage, ocrOptions)
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                            if (fullFrameRes != null) {
+                                                val fullCleaned = sanitizeDetectedOcrText(
+                                                    fullFrameRes.fullText,
+                                                    project.sourceLanguage,
+                                                    appSettings
+                                                )
+                                                if (fullCleaned.isNotBlank()) {
+                                                    ocrRes = fullFrameRes
+                                                    cleanedOcr = fullCleaned
+                                                }
+                                            }
                                         }
-                                        detectedText = OcrTextSanitizer.sanitize(detectedText, project.sourceLanguage)
+
+                                        detectedText = cleanedOcr
                                         detectedConfidence = ocrRes?.confidence ?: 0f
 
                                         lastThumb = currentThumb
@@ -414,24 +431,8 @@ class SubtitleExtractionPipeline(
                     if (extractOnly) "Organizando texto" else "Tradução"
                 )
 
-                val finalLines = mutableListOf<SubtitleLine>()
-                val batchToSave = mutableListOf<SubtitleLine>()
-                val totalLines = groupedLines.size
-                var failedCount = 0
-
-                for ((idx, line) in groupedLines.withIndex()) {
-                    if (cancelledProjects.contains(project.id)) {
-                        throw CancellationException("Operação cancelada pelo usuário")
-                    }
-                    while (pausedProjects.contains(project.id)) {
-                        kotlinx.coroutines.delay(200)
-                        if (cancelledProjects.contains(project.id)) {
-                            throw CancellationException("Operação cancelada pelo usuário")
-                        }
-                    }
-
-                    // Clean out any residual watermark elements before sending to translation.
-                    // Texto vindo do áudio não tem marca d'água visual, então não passa pelo filtro.
+                val preparedLines = groupedLines.mapNotNull { line ->
+                    // Texto vindo do áudio não tem marca d'água visual nem ruído de OCR.
                     val cleanedOriginalText = if (isAudioSource) {
                         line.originalText.trim()
                     } else {
@@ -441,14 +442,8 @@ class SubtitleExtractionPipeline(
                             customIgnoredTerms = appSettings.ignoredTerms
                         )
                     }
+                    if (cleanedOriginalText.isBlank()) return@mapNotNull null
 
-                    if (cleanedOriginalText.isBlank()) {
-                        // Entire line was watermark or promotional text - skip it
-                        continue
-                    }
-
-                    // Sanitiza o texto original para eliminar ruídos visuais de OCR e apóstrofos espúrios
-                    // (desnecessário para transcrições de áudio, que não têm ruído de OCR).
                     val sanitizedOriginalText = if (isAudioSource) {
                         cleanedOriginalText
                     } else {
@@ -457,87 +452,109 @@ class SubtitleExtractionPipeline(
                             sourceLanguage = project.sourceLanguage
                         )
                     }
+                    if (sanitizedOriginalText.isBlank()) return@mapNotNull null
 
-                    var translatedText = ""
-                    var isLineFlagged = line.isFlagged
-
-                    if (extractOnly) {
-                        // Leave the translation empty: it will be filled by the user's imported file.
-                        translatedText = ""
-                    } else try {
-                        val coherentSourceText = sanitizedOriginalText
-                            .replace("\r\n", " ")
-                            .replace("\n", " ")
-                            .replace(Regex("\\s+"), " ")
-                            .trim()
-
-                        translatedText = translator.translate(
-                            text = coherentSourceText,
-                            sourceLanguage = project.sourceLanguage,
-                            targetLanguage = project.targetLanguage,
-                            glossary = appSettings.glossaryTerms,
-                            bypassCache = false
-                        )
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        // Translation failed: flag line and retain original text
-                        translatedText = sanitizedOriginalText
-                        isLineFlagged = true
-                        failedCount++
-                    }
-
-                    val translatedLine = line.copy(
-                        index = finalLines.size + 1,
-                        originalText = sanitizedOriginalText,
-                        translatedText = translatedText,
-                        isFlagged = isLineFlagged
-                    )
-                    finalLines.add(translatedLine)
-                    batchToSave.add(translatedLine)
-
-                    // Checkpoint: save only the uncommitted batch to Room!
-                    if (batchToSave.size >= 5 || idx == totalLines - 1) {
-                        if (cancelledProjects.contains(project.id)) {
-                            throw CancellationException("Operação cancelada pelo usuário")
-                        }
-                        subtitleRepository.saveLines(batchToSave)
-                        batchToSave.clear()
-
-                        val transProgress = 0.75f + (0.24f * ((idx + 1).toFloat() / totalLines.coerceAtLeast(1).toFloat()))
-                        updateState(project.id) {
-                            it.copy(
-                                progress = transProgress,
-                                failedTranslationsCount = failedCount,
-                                lastDetectedText = sanitizedOriginalText,
-                                lastTranslatedText = translatedText
-                            )
-                        }
-                        if (cancelledProjects.contains(project.id)) {
-                            throw CancellationException("Operação cancelada pelo usuário")
-                        }
-                        projectRepository.updateProgress(
-                            project.id,
-                            ProjectStatus.PROCESSING.name,
-                            transProgress,
-                            if (extractOnly) "Organizado ${idx + 1}/$totalLines" else "Traduzido ${idx + 1}/$totalLines"
-                        )
-                        NotificationHelper.updateProgressNotification(
-                            context,
-                            project.title,
-                            if (extractOnly) "Organizando ${idx + 1}/$totalLines" else "Traduzindo ${idx + 1}/$totalLines",
-                            (transProgress * 100).toInt()
-                        )
-                    }
+                    val coherentSourceText = sanitizedOriginalText
+                        .replace("\r\n", " ")
+                        .replace("\n", " ")
+                        .replace(WHITESPACE_REGEX, " ")
+                        .trim()
+                    PreparedTranslationLine(line, sanitizedOriginalText, coherentSourceText)
                 }
 
-                // Flush any remaining lines if the final line(s) were skipped by the watermark filter
-                if (batchToSave.isNotEmpty()) {
-                    if (cancelledProjects.contains(project.id)) {
-                        throw CancellationException("Operação cancelada pelo usuário")
+                val finalLines = mutableListOf<SubtitleLine>()
+                val totalPrepared = preparedLines.size
+                var processedCount = 0
+                var failedCount = 0
+
+                for (chunk in preparedLines.chunked(TRANSLATION_BATCH_SIZE)) {
+                    awaitIfPausedOrCancelled(project.id)
+
+                    val chunkTranslations: List<Pair<String, Boolean>> = if (extractOnly) {
+                        chunk.map { "" to it.line.isFlagged }
+                    } else {
+                        try {
+                            val batchResults = translator.translateBatch(
+                                texts = chunk.map { it.coherentSourceText },
+                                sourceLanguage = project.sourceLanguage,
+                                targetLanguage = project.targetLanguage,
+                                glossary = appSettings.glossaryTerms,
+                                bypassCache = false
+                            )
+                            if (batchResults.size != chunk.size) {
+                                throw IllegalStateException("Quantidade de traduções retornadas diverge do lote.")
+                            }
+                            chunk.mapIndexed { i, item ->
+                                val tr = batchResults[i].trim()
+                                if (tr.isBlank()) {
+                                    failedCount++
+                                    item.sanitizedOriginalText to true
+                                } else {
+                                    tr to item.line.isFlagged
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Se o lote falhar, tenta item a item para não penalizar falas que podem ser traduzidas.
+                            chunk.map { item ->
+                                awaitIfPausedOrCancelled(project.id)
+                                try {
+                                    val tr = translator.translate(
+                                        text = item.coherentSourceText,
+                                        sourceLanguage = project.sourceLanguage,
+                                        targetLanguage = project.targetLanguage,
+                                        glossary = appSettings.glossaryTerms,
+                                        bypassCache = false
+                                    )
+                                    tr to item.line.isFlagged
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (_: Exception) {
+                                    failedCount++
+                                    item.sanitizedOriginalText to true
+                                }
+                            }
+                        }
                     }
+
+                    awaitIfPausedOrCancelled(project.id)
+                    val batchToSave = chunk.mapIndexed { i, item ->
+                        val (translatedText, isLineFlagged) = chunkTranslations[i]
+                        item.line.copy(
+                            index = finalLines.size + i + 1,
+                            originalText = item.sanitizedOriginalText,
+                            translatedText = translatedText,
+                            isFlagged = isLineFlagged
+                        )
+                    }
+                    finalLines.addAll(batchToSave)
                     subtitleRepository.saveLines(batchToSave)
-                    batchToSave.clear()
+                    processedCount += batchToSave.size
+
+                    val lastSaved = batchToSave.lastOrNull()
+                    val transProgress = 0.75f + (0.24f * (processedCount.toFloat() / totalPrepared.coerceAtLeast(1).toFloat()))
+                    updateState(project.id) {
+                        it.copy(
+                            progress = transProgress,
+                            failedTranslationsCount = failedCount,
+                            lastDetectedText = lastSaved?.originalText ?: it.lastDetectedText,
+                            lastTranslatedText = lastSaved?.translatedText ?: it.lastTranslatedText
+                        )
+                    }
+                    awaitIfPausedOrCancelled(project.id)
+                    projectRepository.updateProgress(
+                        project.id,
+                        ProjectStatus.PROCESSING.name,
+                        transProgress,
+                        if (extractOnly) "Organizado $processedCount/$totalPrepared" else "Traduzido $processedCount/$totalPrepared"
+                    )
+                    NotificationHelper.updateProgressNotification(
+                        context,
+                        project.title,
+                        if (extractOnly) "Organizando $processedCount/$totalPrepared" else "Traduzindo $processedCount/$totalPrepared",
+                        (transProgress * 100).toInt()
+                    )
                 }
 
                 if (cancelledProjects.contains(project.id)) {
@@ -730,10 +747,36 @@ class SubtitleExtractionPipeline(
         )
     }
 
+    private fun sanitizeDetectedOcrText(
+        rawText: String,
+        sourceLanguage: String,
+        appSettings: AppSettings
+    ): String {
+        val cleaned = if (appSettings.filterWatermarks) {
+            WatermarkFilter.cleanText(
+                text = rawText,
+                filterEnabled = true,
+                customIgnoredTerms = appSettings.ignoredTerms
+            )
+        } else {
+            rawText
+        }
+        return OcrTextSanitizer.sanitize(cleaned, sourceLanguage)
+    }
+
+    private data class PreparedTranslationLine(
+        val line: SubtitleLine,
+        val sanitizedOriginalText: String,
+        val coherentSourceText: String
+    )
+
     private companion object {
         const val AUDIO_PROGRESS_START = 0.1f
         const val AUDIO_PROGRESS_SPAN = 0.5f
         const val SUSPECT_TIMING_CONFIDENCE = 0.5f
         const val PAUSE_POLL_INTERVAL_MS = 200L
+        const val TRANSLATION_BATCH_SIZE = 20
+        const val FULL_FRAME_FALLBACK_RATIO = 0.90f
+        val WHITESPACE_REGEX = Regex("\\s+")
     }
 }

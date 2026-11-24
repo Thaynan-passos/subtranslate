@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.pipeline.PipelineState
+import com.example.domain.model.CaptureSource
 import com.example.domain.model.OutputMode
 import com.example.domain.model.Project
 import com.example.domain.model.ProjectStatus
@@ -108,7 +109,8 @@ fun ProcessingScreen(
     onCancelClick: () -> Unit,
     onGoToEditorClick: () -> Unit,
     onRetryClick: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    modelTag: String = "Gemini 2.5 Flash"
 ) {
     val isCompleted = pipelineState.progress >= 1f || project?.status == ProjectStatus.COMPLETED
     val isPausedState = pipelineState.isPaused || project?.status == ProjectStatus.PAUSED
@@ -134,7 +136,8 @@ fun ProcessingScreen(
         topBar = {
             SubTranslateTopBar(
                 subtitle = "Processo em Segundo Plano",
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
+                modelTag = modelTag
             )
         }
     ) { paddingValues ->
@@ -382,20 +385,26 @@ fun ProcessingScreen(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            val isAudioSource = project?.captureSource == CaptureSource.AUDIO_TRANSCRIPTION
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Tempo Decorrido",
+                                    text = if (isAudioSource) "Duração do Vídeo" else "Posição do Vídeo",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariantText
                                 )
-                                val elapsedSec = pipelineState.currentSampleTimeMs / 1000
+                                val displayedTimeMs = if (isAudioSource) {
+                                    pipelineState.totalDurationMs.takeIf { it > 0L } ?: (project?.durationMs ?: 0L)
+                                } else {
+                                    pipelineState.currentSampleTimeMs
+                                }
+                                val elapsedSec = displayedTimeMs / 1000
                                 val eMin = elapsedSec / 60
                                 val eSec = elapsedSec % 60
                                 Text(
-                                    text = "${String.format("%02d:%02d", eMin, eSec)}",
+                                    text = String.format("%02d:%02d", eMin, eSec),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = OnSurfaceText
@@ -443,12 +452,16 @@ fun ProcessingScreen(
 
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text(
-                                        text = "Velocidade",
+                                        text = if (isAudioSource) "Modo de Captura" else "Amostragem",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OnSurfaceVariantText
                                     )
                                     Text(
-                                        text = if (isCompleted) "Finalizado" else "4,2x (Tempo real)",
+                                        text = when {
+                                            isCompleted -> "Finalizado"
+                                            isAudioSource -> "Áudio IA"
+                                            else -> "${project?.samplingFps ?: 2} FPS"
+                                        },
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = PrimaryFixedDim
@@ -505,6 +518,7 @@ fun ProcessingScreen(
             ) {
                 val srcLang = project?.sourceLanguage?.uppercase() ?: "EN"
                 val tgtLang = project?.targetLanguage?.uppercase() ?: "PT"
+                val isAudioSource = project?.captureSource == CaptureSource.AUDIO_TRANSCRIPTION
                 TelemetryPill(
                     icon = Icons.Default.Translate,
                     text = "$srcLang ➔ $tgtLang",
@@ -512,12 +526,12 @@ fun ProcessingScreen(
                 )
                 TelemetryPill(
                     icon = Icons.Default.ViewInAr,
-                    text = "OCR: ML Kit Neural",
+                    text = if (isAudioSource) "Áudio: Gemini IA" else "OCR: ML Kit Neural",
                     tint = PrimaryFixedDim
                 )
                 TelemetryPill(
                     icon = Icons.Default.Videocam,
-                    text = "${project?.samplingFps ?: 2} FPS (Amostragem)",
+                    text = if (isAudioSource) "Transcrição Multimodal" else "${project?.samplingFps ?: 2} FPS (Amostragem)",
                     tint = SecondaryBlue
                 )
                 TelemetryPill(
@@ -607,7 +621,11 @@ fun ProcessingScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Original Extraído (OCR):",
+                                    text = if (project?.captureSource == CaptureSource.AUDIO_TRANSCRIPTION) {
+                                        "Original Extraído (Áudio):"
+                                    } else {
+                                        "Original Extraído (OCR):"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariantText
                                 )

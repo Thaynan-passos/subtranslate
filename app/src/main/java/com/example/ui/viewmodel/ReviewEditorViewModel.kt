@@ -105,6 +105,51 @@ class ReviewEditorViewModel(
         }
     }
 
+    /**
+     * Atualiza texto, memória de tradução e timestamps sequencialmente na mesma corrotina,
+     * evitando que uma reindexação concorrente sobrescreva o texto recém-editado.
+     */
+    fun saveLineEdits(
+        lineId: Long,
+        original: String,
+        translated: String,
+        startMs: Long,
+        endMs: Long,
+        saveToMemory: Boolean = true
+    ) {
+        val proj = project.value
+        val cleanOriginal = original.trim()
+        val cleanTranslated = translated.trim()
+
+        viewModelScope.launch {
+            subtitleRepository.updateLineText(lineId, cleanOriginal, cleanTranslated)
+
+            if (saveToMemory && proj != null && cleanOriginal.isNotBlank() && cleanTranslated.isNotBlank()) {
+                subtitleRepository.saveUserTranslationMemory(
+                    sourceText = cleanOriginal,
+                    translatedText = cleanTranslated,
+                    sourceLang = proj.sourceLanguage,
+                    targetLang = proj.targetLanguage
+                )
+            }
+
+            val rawDuration = proj?.durationMs ?: 0L
+            val validStart = startMs.coerceIn(0L, Long.MAX_VALUE - 2_000L).let { start ->
+                if (rawDuration > 0L) start.coerceAtMost(rawDuration) else start
+            }
+            val minimumEnd = validStart + 100L
+            val requestedEnd = endMs.coerceAtLeast(minimumEnd)
+            val validEnd = if (rawDuration > 0L) {
+                requestedEnd.coerceAtMost(rawDuration.coerceAtLeast(minimumEnd))
+            } else {
+                requestedEnd
+            }
+
+            subtitleRepository.updateLineTimestamps(lineId, validStart, validEnd)
+            reindexLines()
+        }
+    }
+
     suspend fun translateTextOnline(text: String): Result<String> {
         val proj = project.value ?: return Result.failure(IllegalStateException("Projeto não carregado"))
         val cleanText = text.trim()
@@ -126,6 +171,8 @@ class ReviewEditorViewModel(
                 bypassCache = true
             )
             Result.success(result)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

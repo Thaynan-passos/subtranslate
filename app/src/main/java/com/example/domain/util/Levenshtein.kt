@@ -5,35 +5,46 @@ import kotlin.math.min
 
 object Levenshtein {
 
+    private val DIGITS_REGEX = Regex("\\d+")
+    private val WHITESPACE_REGEX = Regex("\\s+")
+    private val PUNCTUATION_REGEX = Regex("[.,!?:;\"'()\\-_]")
+    private val REPEATED_CHARS_REGEX = Regex("(?i)(.)\\1{2,}")
+
     /**
-     * Calculates the Levenshtein distance between two strings.
+     * Calculates the Levenshtein distance between two strings using O(min(M, N)) memory.
      */
     fun distance(s1: String, s2: String): Int {
-        val a = s1.trim().lowercase()
-        val b = s2.trim().lowercase()
+        var a = s1.trim().lowercase()
+        var b = s2.trim().lowercase()
 
         if (a == b) return 0
         if (a.isEmpty()) return b.length
         if (b.isEmpty()) return a.length
 
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
+        if (a.length < b.length) {
+            val tmp = a
+            a = b
+            b = tmp
+        }
 
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
+        var prev = IntArray(b.length + 1) { it }
+        var curr = IntArray(b.length + 1)
 
         for (i in 1..a.length) {
+            curr[0] = i
+            val chA = a[i - 1]
             for (j in 1..b.length) {
-                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[i][j] = min(
-                    dp[i - 1][j] + 1,       // deletion
-                    min(
-                        dp[i][j - 1] + 1,   // insertion
-                        dp[i - 1][j - 1] + cost // substitution
-                    )
+                val cost = if (chA == b[j - 1]) 0 else 1
+                curr[j] = min(
+                    prev[j] + 1,
+                    min(curr[j - 1] + 1, prev[j - 1] + cost)
                 )
             }
+            val swap = prev
+            prev = curr
+            curr = swap
         }
-        return dp[a.length][b.length]
+        return prev[b.length]
     }
 
     /**
@@ -68,8 +79,8 @@ object Levenshtein {
 
         // Se ambas as strings contêm números e os números são diferentes (ex: "Chapter 1" vs "Chapter 2"),
         // são capítulos, índices ou valores distintos e não devem ser agrupados como a mesma fala.
-        val nums1 = Regex("\\d+").findAll(clean1).map { it.value }.toList()
-        val nums2 = Regex("\\d+").findAll(clean2).map { it.value }.toList()
+        val nums1 = DIGITS_REGEX.findAll(clean1).map { it.value }.toList()
+        val nums2 = DIGITS_REGEX.findAll(clean2).map { it.value }.toList()
         if (nums1.isNotEmpty() && nums2.isNotEmpty() && nums1 != nums2) {
             return false
         }
@@ -91,10 +102,10 @@ object Levenshtein {
     fun cleanForComparison(text: String): String {
         return text.trim()
             .lowercase()
-            .replace("\\s+".toRegex(), " ")
-            .replace("[.,!?:;\"'()\\-_]".toRegex(), "")
+            .replace(WHITESPACE_REGEX, " ")
+            .replace(PUNCTUATION_REGEX, "")
             // Colapsa 3 ou mais letras repetidas idênticas em 2 (ex: "haaaaa" -> "haa", "ohhhhh" -> "ohh")
             // para que variações de contagem no OCR em palavras arrastadas agrupem com alta similaridade.
-            .replace("(?i)(.)\\1{2,}".toRegex(), "$1$1")
+            .replace(REPEATED_CHARS_REGEX, "$1$1")
     }
 }
