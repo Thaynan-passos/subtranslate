@@ -121,7 +121,7 @@ class CancellationAndPipelineTest {
 
     private class TestOcrEngine : OcrEngine {
         override val name = "test"
-        override suspend fun recognizeText(bitmap: Bitmap, languageCode: String): OcrResult = OcrResult()
+        override suspend fun recognizeText(bitmap: Bitmap, languageCode: String): OcrResult = OcrResult(fullText = "", confidence = 0f)
         override fun close() = Unit
     }
 

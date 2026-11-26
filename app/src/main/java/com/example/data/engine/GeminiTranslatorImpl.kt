@@ -204,18 +204,19 @@ class GeminiTranslatorImpl(
         requestBody: String,
         readTimeoutMs: Int
     ): String = withContext(Dispatchers.IO) {
-        var attempt = 1
-        while (true) {
+        var lastError: GeminiHttpException? = null
+        for (attempt in 1..MAX_ATTEMPTS) {
             try {
                 return@withContext executeHttpRequest(apiKey, model, requestBody, readTimeoutMs)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: GeminiHttpException) {
                 if (!e.isRetryable || attempt >= MAX_ATTEMPTS) throw e
+                lastError = e
                 delay(RETRY_BASE_DELAY_MS * attempt)
-                attempt++
             }
         }
+        throw lastError ?: IllegalStateException("Falha ao comunicar com a API do Google Gemini.")
     }
 
     private fun executeHttpRequest(

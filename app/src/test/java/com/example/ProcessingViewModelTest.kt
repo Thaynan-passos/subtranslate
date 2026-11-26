@@ -101,7 +101,7 @@ class ProcessingViewModelTest {
 
     private class VmTestOcrEngine : OcrEngine {
         override val name = "test"
-        override suspend fun recognizeText(bitmap: android.graphics.Bitmap, languageCode: String): OcrResult = OcrResult()
+        override suspend fun recognizeText(bitmap: android.graphics.Bitmap, languageCode: String): OcrResult = OcrResult(fullText = "", confidence = 0f)
         override fun close() = Unit
     }
 

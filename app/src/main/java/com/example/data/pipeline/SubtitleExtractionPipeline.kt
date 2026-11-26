@@ -145,20 +145,7 @@ class SubtitleExtractionPipeline(
                 0.02f,
                 if (extractOnly) "Preparando extração" else "Verificando modelo de tradução"
             )
-            val downloadSuccess = if (extractOnly) true else try {
-                translator.downloadModelIfNeeded(
-                    sourceLanguage = project.sourceLanguage,
-                    targetLanguage = project.targetLanguage,
-                    requireWifi = false,
-                    onProgress = { downloadProgress ->
-                        updateState(project.id) { it.copy(progress = 0.02f + (0.03f * downloadProgress)) }
-                    }
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                false
-            }
+            val downloadSuccess = ensureTranslatorReady(project, extractOnly)
             if (!downloadSuccess) {
                 val downloadError = "Não foi possível baixar o modelo de tradução. Verifique a conexão e tente novamente."
                 projectRepository.updateProgress(project.id, ProjectStatus.ERROR.name, 0f, downloadError)
@@ -180,19 +167,8 @@ class SubtitleExtractionPipeline(
                 val videoUri = Uri.parse(project.videoUri)
                 retriever.setDataSource(context, videoUri)
 
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                val durationMs = durationStr?.toLongOrNull() ?: project.durationMs
-                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                    ?.toIntOrNull() ?: 0
-                val rawWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                    ?.toIntOrNull() ?: project.videoWidth
-                val rawHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                    ?.toIntOrNull() ?: project.videoHeight
-                val videoWidth = if (rotation == 90 || rotation == 270) rawHeight else rawWidth
-                val videoHeight = if (rotation == 90 || rotation == 270) rawWidth else rawHeight
-                if (durationMs <= 0L) {
-                    throw IllegalStateException("O vídeo selecionado possui duração inválida (0s).")
-                }
+                val metadata = extractVideoMetadata(retriever, project)
+                val durationMs = metadata.durationMs
 
                 updateState(project.id) {
                     PipelineState(
@@ -211,194 +187,17 @@ class SubtitleExtractionPipeline(
                     enableOtsuBinarization = appSettings.enableOtsuOcr
                 )
                 val groupedLines: List<SubtitleLine> = if (isAudioSource) {
-                    // Fonte de áudio: transcrição com timestamps substitui o OCR + agrupamento temporal.
                     transcribeAudioToLines(project)
                 } else {
-                    val fps = project.samplingFps.coerceIn(1, 10)
-                    val intervalMs = (1000L / fps).coerceAtLeast(100L)
-
-                    // Step 1: Frame extraction and OCR with thumbnail diffing and empty-region detection.
-                    val rawDetections = mutableListOf<RawFrameDetection>()
-                    var lastThumb: IntArray? = null
-                    var lastOcrText = ""
-                    var lastConfidence = 0f
-                    var lastOcrTimeMs = Long.MIN_VALUE
-
-                    var currentTimeMs = 0L
-                    val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
-                    var stepIndex = 0L
-
-                    updateState(project.id) {
-                        it.copy(
-                            step = "Extraindo frames e detectando legendas (OCR)...",
-                            progress = 0.1f
-                        )
-                    }
-
-                    while (currentTimeMs < durationMs) {
-                        awaitIfPausedOrCancelled(project.id)
-
-                        val frameMicros = currentTimeMs * 1000L
-                        val rawFrame = getScaledFrame(retriever, frameMicros, videoWidth, videoHeight)
-
-                        if (rawFrame != null) {
-                            var croppedBitmap: Bitmap? = null
-                            try {
-                                val frameW = rawFrame.width
-                                val frameH = rawFrame.height
-
-                                val cropLeft = (project.roiLeft * frameW).toInt().coerceIn(0, frameW - 1)
-                                val cropTop = (project.roiTop * frameH).toInt().coerceIn(0, frameH - 1)
-                                val cropRight = (project.roiRight * frameW).toInt().coerceIn(cropLeft + 1, frameW)
-                                val cropBottom = (project.roiBottom * frameH).toInt().coerceIn(cropTop + 1, frameH)
-                                val cropW = (cropRight - cropLeft).coerceAtLeast(1)
-                                val cropH = (cropBottom - cropTop).coerceAtLeast(1)
-
-                                val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
-                                croppedBitmap = crop
-                                val thumbMetrics = ImagePreprocessor.createThumbnailMetrics(crop, 96, 24)
-                                val grayThumb = thumbMetrics.gray
-                                val currentThumb = thumbMetrics.rgb
-                                val stdDev = ImagePreprocessor.computeStandardDeviation(grayThumb)
-
-                                var detectedText: String
-                                var detectedConfidence: Float
-
-                                if (stdDev < 6.0f) {
-                                    detectedText = ""
-                                    detectedConfidence = 0f
-                                    lastThumb = currentThumb
-                                    lastOcrText = ""
-                                    lastConfidence = 0f
-                                    lastOcrTimeMs = currentTimeMs
-                                } else {
-                                    val isSimilarToLast = lastThumb != null &&
-                                            ImagePreprocessor.isFrameSimilar(lastThumb!!, currentThumb, maeThreshold = 2.0f) &&
-                                            currentTimeMs - lastOcrTimeMs < 1000L
-
-                                    if (isSimilarToLast) {
-                                        detectedText = lastOcrText
-                                        detectedConfidence = lastConfidence
-                                    } else {
-                                        var ocrRes = try {
-                                            ocrEngine.recognizeText(crop, project.sourceLanguage, ocrOptions)
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } catch (_: Exception) {
-                                            failedOcrFrames++
-                                            null
-                                        }
-                                        var cleanedOcr = sanitizeDetectedOcrText(
-                                            ocrRes?.fullText.orEmpty(),
-                                            project.sourceLanguage,
-                                            appSettings
-                                        )
-
-                                        val cropIsSubregion = cropW < (frameW * FULL_FRAME_FALLBACK_RATIO).toInt() ||
-                                            cropH < (frameH * FULL_FRAME_FALLBACK_RATIO).toInt()
-                                        if (cleanedOcr.isBlank() && appSettings.enableFullFrameFallbackOcr && cropIsSubregion) {
-                                            val fullFrameRes = try {
-                                                ocrEngine.recognizeText(rawFrame, project.sourceLanguage, ocrOptions)
-                                            } catch (e: CancellationException) {
-                                                throw e
-                                            } catch (_: Exception) {
-                                                null
-                                            }
-                                            if (fullFrameRes != null) {
-                                                val fullCleaned = sanitizeDetectedOcrText(
-                                                    fullFrameRes.fullText,
-                                                    project.sourceLanguage,
-                                                    appSettings
-                                                )
-                                                if (fullCleaned.isNotBlank()) {
-                                                    ocrRes = fullFrameRes
-                                                    cleanedOcr = fullCleaned
-                                                }
-                                            }
-                                        }
-
-                                        detectedText = cleanedOcr
-                                        detectedConfidence = ocrRes?.confidence ?: 0f
-
-                                        lastThumb = currentThumb
-                                        lastOcrText = detectedText
-                                        lastConfidence = detectedConfidence
-                                        lastOcrTimeMs = currentTimeMs
-                                    }
-                                }
-
-                                if (detectedText.isNotBlank()) {
-                                    rawDetections.add(
-                                        RawFrameDetection(
-                                            timestampMs = currentTimeMs,
-                                            text = detectedText,
-                                            confidence = detectedConfidence
-                                        )
-                                    )
-                                }
-                            } finally {
-                                if (croppedBitmap != null && croppedBitmap !== rawFrame && !croppedBitmap.isRecycled) {
-                                    croppedBitmap.recycle()
-                                }
-                                if (!rawFrame.isRecycled) rawFrame.recycle()
-                            }
-                        }
-
-                        stepIndex++
-                        currentTimeMs += intervalMs
-
-                        val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
-                            .coerceIn(0.1f, 0.6f)
-                        if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
-                            val latestDetected = rawDetections.lastOrNull()?.text ?: ""
-                            updateState(project.id) {
-                                it.copy(
-                                    progress = frameProgress,
-                                    currentSampleTimeMs = currentTimeMs,
-                                    extractedLinesCount = rawDetections.size,
-                                    failedOcrFramesCount = failedOcrFrames,
-                                    lastDetectedText = if (latestDetected.isNotBlank()) latestDetected else it.lastDetectedText
-                                )
-                            }
-                            val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
-                                .toInt()
-                                .coerceIn(0, 100)
-                            projectRepository.updateProgress(
-                                project.id,
-                                ProjectStatus.PROCESSING.name,
-                                frameProgress,
-                                "OCR: $percent%"
-                            )
-                            NotificationHelper.updateProgressNotification(context, project.title, "OCR: $percent%", (frameProgress * 100).toInt())
-                        }
-                    }
-
-                    if (failedOcrFrames > 0 && rawDetections.isEmpty()) {
-                        throw IllegalStateException(
-                            "O OCR falhou em $failedOcrFrames amostras e nenhuma legenda pôde ser detectada."
-                        )
-                    }
-
-                    // Step 2: Temporal Speech Grouping
-                    updateState(project.id) {
-                        it.copy(
-                            step = "Agrupando falas e refinando linha do tempo...",
-                            progress = 0.65f
-                        )
-                    }
-                    projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.65f, "Agrupamento temporal")
-                    NotificationHelper.updateProgressNotification(context, project.title, "Agrupando falas...", 65)
-
-                    val grouper = TemporalSpeechGrouper(
-                        similarityThreshold = appSettings.textSimilarityThreshold,
-                        minDurationMs = appSettings.minSpeechDurationMs,
-                        sampleIntervalMs = intervalMs,
-                        minConsecutiveFrames = if (fps == 1) 1 else 2,
-                        videoDurationMs = durationMs,
-                        filterWatermarks = appSettings.filterWatermarks,
-                        ignoredTerms = appSettings.ignoredTerms
+                    val extraction = extractAndGroupFromVideo(
+                        project = project,
+                        appSettings = appSettings,
+                        retriever = retriever,
+                        metadata = metadata,
+                        ocrOptions = ocrOptions
                     )
-                    grouper.groupDetections(project.id, rawDetections)
+                    failedOcrFrames = extraction.failedOcrFrames
+                    extraction.lines
                 }
                 if (groupedLines.isEmpty()) {
                     throw IllegalStateException(
@@ -413,149 +212,15 @@ class SubtitleExtractionPipeline(
                 // Clear previous lines before inserting fresh batch
                 subtitleRepository.clearLines(project.id)
 
-                // Step 4: Batch Translation with Checkpoints
-                updateState(project.id) {
-                    it.copy(
-                        step = if (extractOnly) {
-                            "Preparando texto para tradução manual..."
-                        } else {
-                            "Traduzindo falas para ${project.targetLanguage.uppercase()}..."
-                        },
-                        progress = 0.75f
-                    )
-                }
-                projectRepository.updateProgress(
-                    project.id,
-                    ProjectStatus.PROCESSING.name,
-                    0.75f,
-                    if (extractOnly) "Organizando texto" else "Tradução"
+                val preparedLines = prepareLinesForTranslation(groupedLines, isAudioSource, project, appSettings)
+                val translationResult = translateAndSaveLines(
+                    project = project,
+                    preparedLines = preparedLines,
+                    extractOnly = extractOnly,
+                    appSettings = appSettings
                 )
-
-                val preparedLines = groupedLines.mapNotNull { line ->
-                    // Texto vindo do áudio não tem marca d'água visual nem ruído de OCR.
-                    val cleanedOriginalText = if (isAudioSource) {
-                        line.originalText.trim()
-                    } else {
-                        WatermarkFilter.cleanText(
-                            text = line.originalText,
-                            filterEnabled = appSettings.filterWatermarks,
-                            customIgnoredTerms = appSettings.ignoredTerms
-                        )
-                    }
-                    if (cleanedOriginalText.isBlank()) return@mapNotNull null
-
-                    val sanitizedOriginalText = if (isAudioSource) {
-                        cleanedOriginalText
-                    } else {
-                        OcrTextSanitizer.sanitize(
-                            text = cleanedOriginalText,
-                            sourceLanguage = project.sourceLanguage
-                        )
-                    }
-                    if (sanitizedOriginalText.isBlank()) return@mapNotNull null
-
-                    val coherentSourceText = sanitizedOriginalText
-                        .replace("\r\n", " ")
-                        .replace("\n", " ")
-                        .replace(WHITESPACE_REGEX, " ")
-                        .trim()
-                    PreparedTranslationLine(line, sanitizedOriginalText, coherentSourceText)
-                }
-
-                val finalLines = mutableListOf<SubtitleLine>()
-                val totalPrepared = preparedLines.size
-                var processedCount = 0
-                var failedCount = 0
-
-                for (chunk in preparedLines.chunked(TRANSLATION_BATCH_SIZE)) {
-                    awaitIfPausedOrCancelled(project.id)
-
-                    val chunkTranslations: List<Pair<String, Boolean>> = if (extractOnly) {
-                        chunk.map { "" to it.line.isFlagged }
-                    } else {
-                        try {
-                            val batchResults = translator.translateBatch(
-                                texts = chunk.map { it.coherentSourceText },
-                                sourceLanguage = project.sourceLanguage,
-                                targetLanguage = project.targetLanguage,
-                                glossary = appSettings.glossaryTerms,
-                                bypassCache = false
-                            )
-                            if (batchResults.size != chunk.size) {
-                                throw IllegalStateException("Quantidade de traduções retornadas diverge do lote.")
-                            }
-                            chunk.mapIndexed { i, item ->
-                                val tr = batchResults[i].trim()
-                                if (tr.isBlank()) {
-                                    failedCount++
-                                    item.sanitizedOriginalText to true
-                                } else {
-                                    tr to item.line.isFlagged
-                                }
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // Se o lote falhar, tenta item a item para não penalizar falas que podem ser traduzidas.
-                            chunk.map { item ->
-                                awaitIfPausedOrCancelled(project.id)
-                                try {
-                                    val tr = translator.translate(
-                                        text = item.coherentSourceText,
-                                        sourceLanguage = project.sourceLanguage,
-                                        targetLanguage = project.targetLanguage,
-                                        glossary = appSettings.glossaryTerms,
-                                        bypassCache = false
-                                    )
-                                    tr to item.line.isFlagged
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (_: Exception) {
-                                    failedCount++
-                                    item.sanitizedOriginalText to true
-                                }
-                            }
-                        }
-                    }
-
-                    awaitIfPausedOrCancelled(project.id)
-                    val batchToSave = chunk.mapIndexed { i, item ->
-                        val (translatedText, isLineFlagged) = chunkTranslations[i]
-                        item.line.copy(
-                            index = finalLines.size + i + 1,
-                            originalText = item.sanitizedOriginalText,
-                            translatedText = translatedText,
-                            isFlagged = isLineFlagged
-                        )
-                    }
-                    finalLines.addAll(batchToSave)
-                    subtitleRepository.saveLines(batchToSave)
-                    processedCount += batchToSave.size
-
-                    val lastSaved = batchToSave.lastOrNull()
-                    val transProgress = 0.75f + (0.24f * (processedCount.toFloat() / totalPrepared.coerceAtLeast(1).toFloat()))
-                    updateState(project.id) {
-                        it.copy(
-                            progress = transProgress,
-                            failedTranslationsCount = failedCount,
-                            lastDetectedText = lastSaved?.originalText ?: it.lastDetectedText,
-                            lastTranslatedText = lastSaved?.translatedText ?: it.lastTranslatedText
-                        )
-                    }
-                    awaitIfPausedOrCancelled(project.id)
-                    projectRepository.updateProgress(
-                        project.id,
-                        ProjectStatus.PROCESSING.name,
-                        transProgress,
-                        if (extractOnly) "Organizado $processedCount/$totalPrepared" else "Traduzido $processedCount/$totalPrepared"
-                    )
-                    NotificationHelper.updateProgressNotification(
-                        context,
-                        project.title,
-                        if (extractOnly) "Organizando $processedCount/$totalPrepared" else "Traduzindo $processedCount/$totalPrepared",
-                        (transProgress * 100).toInt()
-                    )
-                }
+                val finalLines = translationResult.finalLines
+                val failedCount = translationResult.failedCount
 
                 if (cancelledProjects.contains(project.id)) {
                     throw CancellationException("Operação cancelada pelo usuário")
@@ -636,6 +301,448 @@ class SubtitleExtractionPipeline(
         } finally {
             mutex.unlock()
         }
+    }
+
+    private suspend fun ensureTranslatorReady(project: Project, extractOnly: Boolean): Boolean {
+        if (extractOnly) return true
+        return try {
+            translator.downloadModelIfNeeded(
+                sourceLanguage = project.sourceLanguage,
+                targetLanguage = project.targetLanguage,
+                requireWifi = false,
+                onProgress = { downloadProgress ->
+                    updateState(project.id) { it.copy(progress = 0.02f + (0.03f * downloadProgress)) }
+                }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun extractVideoMetadata(
+        retriever: MediaMetadataRetriever,
+        project: Project
+    ): VideoMetadata {
+        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        val durationMs = durationStr?.toLongOrNull() ?: project.durationMs
+        val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+            ?.toIntOrNull() ?: 0
+        val rawWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+            ?.toIntOrNull() ?: project.videoWidth
+        val rawHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+            ?.toIntOrNull() ?: project.videoHeight
+        val videoWidth = if (rotation == 90 || rotation == 270) rawHeight else rawWidth
+        val videoHeight = if (rotation == 90 || rotation == 270) rawWidth else rawHeight
+        if (durationMs <= 0L) {
+            throw IllegalStateException("O vídeo selecionado possui duração inválida (0s).")
+        }
+        return VideoMetadata(durationMs, videoWidth, videoHeight)
+    }
+
+    private suspend fun extractAndGroupFromVideo(
+        project: Project,
+        appSettings: AppSettings,
+        retriever: MediaMetadataRetriever,
+        metadata: VideoMetadata,
+        ocrOptions: OcrPreprocessingOptions
+    ): OcrExtractionResult {
+        val durationMs = metadata.durationMs
+        val fps = project.samplingFps.coerceIn(1, 10)
+        val intervalMs = (1000L / fps).coerceAtLeast(100L)
+
+        val rawDetections = mutableListOf<RawFrameDetection>()
+        var lastThumb: IntArray? = null
+        var lastOcrText = ""
+        var lastConfidence = 0f
+        var lastOcrTimeMs = Long.MIN_VALUE
+        var failedOcrFrames = 0
+
+        var currentTimeMs = 0L
+        val totalSteps = ((durationMs - 1L) / intervalMs) + 1L
+        var stepIndex = 0L
+
+        updateState(project.id) {
+            it.copy(
+                step = "Extraindo frames e detectando legendas (OCR)...",
+                progress = 0.1f
+            )
+        }
+
+        while (currentTimeMs < durationMs) {
+            awaitIfPausedOrCancelled(project.id)
+
+            val rawFrame = getScaledFrame(retriever, currentTimeMs * 1000L, metadata.width, metadata.height)
+            if (rawFrame != null) {
+                var croppedBitmap: Bitmap? = null
+                try {
+                    val frameW = rawFrame.width
+                    val frameH = rawFrame.height
+                    val cropLeft = (project.roiLeft * frameW).toInt().coerceIn(0, frameW - 1)
+                    val cropTop = (project.roiTop * frameH).toInt().coerceIn(0, frameH - 1)
+                    val cropRight = (project.roiRight * frameW).toInt().coerceIn(cropLeft + 1, frameW)
+                    val cropBottom = (project.roiBottom * frameH).toInt().coerceIn(cropTop + 1, frameH)
+                    val cropW = (cropRight - cropLeft).coerceAtLeast(1)
+                    val cropH = (cropBottom - cropTop).coerceAtLeast(1)
+
+                    val crop = Bitmap.createBitmap(rawFrame, cropLeft, cropTop, cropW, cropH)
+                    croppedBitmap = crop
+                    val thumbMetrics = ImagePreprocessor.createThumbnailMetrics(crop, 96, 24)
+                    val currentThumb = thumbMetrics.rgb
+                    val stdDev = ImagePreprocessor.computeStandardDeviation(thumbMetrics.gray)
+
+                    val detectedText: String
+                    val detectedConfidence: Float
+
+                    if (stdDev < 6.0f) {
+                        detectedText = ""
+                        detectedConfidence = 0f
+                        lastThumb = currentThumb
+                        lastOcrText = ""
+                        lastConfidence = 0f
+                        lastOcrTimeMs = currentTimeMs
+                    } else {
+                        val isSimilarToLast = lastThumb != null &&
+                            ImagePreprocessor.isFrameSimilar(lastThumb, currentThumb, maeThreshold = FRAME_SIMILARITY_MAE_THRESHOLD) &&
+                            currentTimeMs - lastOcrTimeMs < MAX_FRAME_REUSE_WINDOW_MS
+
+                        if (isSimilarToLast) {
+                            detectedText = lastOcrText
+                            detectedConfidence = lastConfidence
+                        } else {
+                            val outcome = recognizeFrameWithFallback(
+                                rawFrame = rawFrame,
+                                crop = crop,
+                                cropW = cropW,
+                                cropH = cropH,
+                                frameW = frameW,
+                                frameH = frameH,
+                                project = project,
+                                appSettings = appSettings,
+                                ocrOptions = ocrOptions
+                            )
+                            if (outcome.failed) failedOcrFrames++
+                            detectedText = outcome.text
+                            detectedConfidence = outcome.confidence
+
+                            lastThumb = currentThumb
+                            lastOcrText = detectedText
+                            lastConfidence = detectedConfidence
+                            lastOcrTimeMs = currentTimeMs
+                        }
+                    }
+
+                    if (detectedText.isNotBlank()) {
+                        rawDetections.add(
+                            RawFrameDetection(
+                                timestampMs = currentTimeMs,
+                                text = detectedText,
+                                confidence = detectedConfidence
+                            )
+                        )
+                    }
+                } finally {
+                    if (croppedBitmap != null && croppedBitmap !== rawFrame && !croppedBitmap.isRecycled) {
+                        croppedBitmap.recycle()
+                    }
+                    if (!rawFrame.isRecycled) rawFrame.recycle()
+                }
+            }
+
+            stepIndex++
+            currentTimeMs += intervalMs
+
+            val frameProgress = (0.1f + (0.50f * (stepIndex.toFloat() / totalSteps.toFloat())))
+                .coerceIn(0.1f, 0.6f)
+            if (stepIndex % 5 == 0L || currentTimeMs >= durationMs) {
+                val latestDetected = rawDetections.lastOrNull()?.text ?: ""
+                updateState(project.id) {
+                    it.copy(
+                        progress = frameProgress,
+                        currentSampleTimeMs = currentTimeMs,
+                        extractedLinesCount = rawDetections.size,
+                        failedOcrFramesCount = failedOcrFrames,
+                        lastDetectedText = if (latestDetected.isNotBlank()) latestDetected else it.lastDetectedText
+                    )
+                }
+                val percent = ((currentTimeMs.toDouble() / durationMs) * 100)
+                    .toInt()
+                    .coerceIn(0, 100)
+                projectRepository.updateProgress(
+                    project.id,
+                    ProjectStatus.PROCESSING.name,
+                    frameProgress,
+                    "OCR: $percent%"
+                )
+                NotificationHelper.updateProgressNotification(
+                    context,
+                    project.title,
+                    "OCR: $percent%",
+                    (frameProgress * 100).toInt()
+                )
+            }
+        }
+
+        if (failedOcrFrames > 0 && rawDetections.isEmpty()) {
+            throw IllegalStateException(
+                "O OCR falhou em $failedOcrFrames amostras e nenhuma legenda pôde ser detectada."
+            )
+        }
+
+        updateState(project.id) {
+            it.copy(
+                step = "Agrupando falas e refinando linha do tempo...",
+                progress = 0.65f
+            )
+        }
+        projectRepository.updateProgress(project.id, ProjectStatus.PROCESSING.name, 0.65f, "Agrupamento temporal")
+        NotificationHelper.updateProgressNotification(context, project.title, "Agrupando falas...", 65)
+
+        val grouper = TemporalSpeechGrouper(
+            similarityThreshold = appSettings.textSimilarityThreshold,
+            minDurationMs = appSettings.minSpeechDurationMs,
+            sampleIntervalMs = intervalMs,
+            minConsecutiveFrames = if (fps == 1) 1 else 2,
+            videoDurationMs = durationMs,
+            filterWatermarks = appSettings.filterWatermarks,
+            ignoredTerms = appSettings.ignoredTerms
+        )
+        return OcrExtractionResult(
+            lines = grouper.groupDetections(project.id, rawDetections),
+            failedOcrFrames = failedOcrFrames
+        )
+    }
+
+    private suspend fun recognizeFrameWithFallback(
+        rawFrame: Bitmap,
+        crop: Bitmap,
+        cropW: Int,
+        cropH: Int,
+        frameW: Int,
+        frameH: Int,
+        project: Project,
+        appSettings: AppSettings,
+        ocrOptions: OcrPreprocessingOptions
+    ): FrameOcrOutcome {
+        var failed = false
+        var ocrRes = try {
+            ocrEngine.recognizeText(crop, project.sourceLanguage, ocrOptions)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            failed = true
+            null
+        }
+        var cleanedOcr = sanitizeDetectedOcrText(
+            ocrRes?.fullText.orEmpty(),
+            project.sourceLanguage,
+            appSettings
+        )
+
+        val cropIsSubregion = cropW < (frameW * FULL_FRAME_FALLBACK_RATIO).toInt() ||
+            cropH < (frameH * FULL_FRAME_FALLBACK_RATIO).toInt()
+        if (cleanedOcr.isBlank() && appSettings.enableFullFrameFallbackOcr && cropIsSubregion) {
+            // Full-frame fallback uses a single fast pass without pixel-by-pixel HighContrast/Otsu
+            // to avoid allocating tens of MBs and running 3 redundant neural passes on empty scenes.
+            val fullFrameRes = try {
+                ocrEngine.recognizeText(rawFrame, project.sourceLanguage, FULL_FRAME_FALLBACK_OPTIONS)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (fullFrameRes != null) {
+                val fullCleaned = sanitizeDetectedOcrText(
+                    fullFrameRes.fullText,
+                    project.sourceLanguage,
+                    appSettings
+                )
+                if (fullCleaned.isNotBlank()) {
+                    ocrRes = fullFrameRes
+                    cleanedOcr = fullCleaned
+                }
+            }
+        }
+
+        return FrameOcrOutcome(
+            text = cleanedOcr,
+            confidence = ocrRes?.confidence ?: 0f,
+            failed = failed
+        )
+    }
+
+    private fun prepareLinesForTranslation(
+        groupedLines: List<SubtitleLine>,
+        isAudioSource: Boolean,
+        project: Project,
+        appSettings: AppSettings
+    ): List<PreparedTranslationLine> {
+        return groupedLines.mapNotNull { line ->
+            val cleanedOriginalText = if (isAudioSource) {
+                line.originalText.trim()
+            } else {
+                WatermarkFilter.cleanText(
+                    text = line.originalText,
+                    filterEnabled = appSettings.filterWatermarks,
+                    customIgnoredTerms = appSettings.ignoredTerms
+                )
+            }
+            if (cleanedOriginalText.isBlank()) return@mapNotNull null
+
+            val sanitizedOriginalText = if (isAudioSource) {
+                cleanedOriginalText
+            } else {
+                OcrTextSanitizer.sanitize(
+                    text = cleanedOriginalText,
+                    sourceLanguage = project.sourceLanguage
+                )
+            }
+            if (sanitizedOriginalText.isBlank()) return@mapNotNull null
+
+            val coherentSourceText = sanitizedOriginalText
+                .replace("\r\n", " ")
+                .replace("\n", " ")
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
+            PreparedTranslationLine(line, sanitizedOriginalText, coherentSourceText)
+        }
+    }
+
+    private suspend fun translateAndSaveLines(
+        project: Project,
+        preparedLines: List<PreparedTranslationLine>,
+        extractOnly: Boolean,
+        appSettings: AppSettings
+    ): TranslationStageResult {
+        updateState(project.id) {
+            it.copy(
+                step = if (extractOnly) {
+                    "Preparando texto para tradução manual..."
+                } else {
+                    "Traduzindo falas para ${project.targetLanguage.uppercase()}..."
+                },
+                progress = 0.75f
+            )
+        }
+        projectRepository.updateProgress(
+            project.id,
+            ProjectStatus.PROCESSING.name,
+            0.75f,
+            if (extractOnly) "Organizando texto" else "Tradução"
+        )
+
+        val finalLines = mutableListOf<SubtitleLine>()
+        val totalPrepared = preparedLines.size
+        var processedCount = 0
+        var failedCount = 0
+
+        for (chunk in preparedLines.chunked(TRANSLATION_BATCH_SIZE)) {
+            awaitIfPausedOrCancelled(project.id)
+
+            val chunkOutcome = translateChunk(
+                project = project,
+                chunk = chunk,
+                extractOnly = extractOnly,
+                appSettings = appSettings
+            )
+            failedCount += chunkOutcome.failedCount
+
+            awaitIfPausedOrCancelled(project.id)
+            val batchToSave = chunk.mapIndexed { i, item ->
+                val (translatedText, isLineFlagged) = chunkOutcome.translations[i]
+                item.line.copy(
+                    index = finalLines.size + i + 1,
+                    originalText = item.sanitizedOriginalText,
+                    translatedText = translatedText,
+                    isFlagged = isLineFlagged
+                )
+            }
+            finalLines.addAll(batchToSave)
+            subtitleRepository.saveLines(batchToSave)
+            processedCount += batchToSave.size
+
+            val lastSaved = batchToSave.lastOrNull()
+            val transProgress = 0.75f + (0.24f * (processedCount.toFloat() / totalPrepared.coerceAtLeast(1).toFloat()))
+            updateState(project.id) {
+                it.copy(
+                    progress = transProgress,
+                    failedTranslationsCount = failedCount,
+                    lastDetectedText = lastSaved?.originalText ?: it.lastDetectedText,
+                    lastTranslatedText = lastSaved?.translatedText ?: it.lastTranslatedText
+                )
+            }
+            awaitIfPausedOrCancelled(project.id)
+            projectRepository.updateProgress(
+                project.id,
+                ProjectStatus.PROCESSING.name,
+                transProgress,
+                if (extractOnly) "Organizado $processedCount/$totalPrepared" else "Traduzido $processedCount/$totalPrepared"
+            )
+            NotificationHelper.updateProgressNotification(
+                context,
+                project.title,
+                if (extractOnly) "Organizando $processedCount/$totalPrepared" else "Traduzindo $processedCount/$totalPrepared",
+                (transProgress * 100).toInt()
+            )
+        }
+
+        return TranslationStageResult(finalLines, failedCount)
+    }
+
+    private suspend fun translateChunk(
+        project: Project,
+        chunk: List<PreparedTranslationLine>,
+        extractOnly: Boolean,
+        appSettings: AppSettings
+    ): ChunkTranslationOutcome {
+        if (extractOnly) {
+            return ChunkTranslationOutcome(chunk.map { "" to it.line.isFlagged }, 0)
+        }
+        var failedCount = 0
+        val translations = try {
+            val batchResults = translator.translateBatch(
+                texts = chunk.map { it.coherentSourceText },
+                sourceLanguage = project.sourceLanguage,
+                targetLanguage = project.targetLanguage,
+                glossary = appSettings.glossaryTerms,
+                bypassCache = false
+            )
+            if (batchResults.size != chunk.size) {
+                throw IllegalStateException("Quantidade de traduções retornadas diverge do lote.")
+            }
+            chunk.mapIndexed { i, item ->
+                val tr = batchResults[i].trim()
+                if (tr.isBlank()) {
+                    failedCount++
+                    item.sanitizedOriginalText to true
+                } else {
+                    tr to item.line.isFlagged
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            chunk.map { item ->
+                awaitIfPausedOrCancelled(project.id)
+                try {
+                    val tr = translator.translate(
+                        text = item.coherentSourceText,
+                        sourceLanguage = project.sourceLanguage,
+                        targetLanguage = project.targetLanguage,
+                        glossary = appSettings.glossaryTerms,
+                        bypassCache = false
+                    )
+                    tr to item.line.isFlagged
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failedCount++
+                    item.sanitizedOriginalText to true
+                }
+            }
+        }
+        return ChunkTranslationOutcome(translations, failedCount)
     }
 
     /**
@@ -734,8 +841,8 @@ class SubtitleExtractionPipeline(
         }
         val width = videoWidth.coerceAtLeast(1)
         val height = videoHeight.coerceAtLeast(1)
-        // Keep enough detail for small text in high-resolution videos without decoding full 4K frames.
-        val maxDimension = 1920f
+        // 1280px matches ML Kit's internal resolution while cutting decode time and bitmap memory by >2x vs 1920px.
+        val maxDimension = MAX_FRAME_DECODE_DIMENSION
         val scale = minOf(1f, maxDimension / maxOf(width, height))
         val targetWidth = (width * scale).toInt().coerceAtLeast(1)
         val targetHeight = (height * scale).toInt().coerceAtLeast(1)
@@ -764,10 +871,37 @@ class SubtitleExtractionPipeline(
         return OcrTextSanitizer.sanitize(cleaned, sourceLanguage)
     }
 
+    private data class VideoMetadata(
+        val durationMs: Long,
+        val width: Int,
+        val height: Int
+    )
+
+    private data class OcrExtractionResult(
+        val lines: List<SubtitleLine>,
+        val failedOcrFrames: Int
+    )
+
+    private data class FrameOcrOutcome(
+        val text: String,
+        val confidence: Float,
+        val failed: Boolean
+    )
+
     private data class PreparedTranslationLine(
         val line: SubtitleLine,
         val sanitizedOriginalText: String,
         val coherentSourceText: String
+    )
+
+    private data class TranslationStageResult(
+        val finalLines: List<SubtitleLine>,
+        val failedCount: Int
+    )
+
+    private data class ChunkTranslationOutcome(
+        val translations: List<Pair<String, Boolean>>,
+        val failedCount: Int
     )
 
     private companion object {
@@ -777,6 +911,13 @@ class SubtitleExtractionPipeline(
         const val PAUSE_POLL_INTERVAL_MS = 200L
         const val TRANSLATION_BATCH_SIZE = 20
         const val FULL_FRAME_FALLBACK_RATIO = 0.90f
+        const val MAX_FRAME_DECODE_DIMENSION = 1280f
+        const val FRAME_SIMILARITY_MAE_THRESHOLD = 3.5f
+        const val MAX_FRAME_REUSE_WINDOW_MS = 2_000L
+        val FULL_FRAME_FALLBACK_OPTIONS = OcrPreprocessingOptions(
+            enableHighContrast = false,
+            enableOtsuBinarization = false
+        )
         val WHITESPACE_REGEX = Regex("\\s+")
     }
 }
